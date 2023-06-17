@@ -1,7 +1,7 @@
 .PHONY = all clean
 CC = gcc
 FLAGS = -Wall -g
-LIB = -D_XOPEN_SOURCE=700
+LIB = -lpthread
 
 all:
 	clear

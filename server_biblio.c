@@ -16,6 +16,7 @@
 
 #include <signal.h>
 #define _GNU_SOURCE
+#define __USE_GNU
 
 #define MAX_PROP_NAME_LEN 256
 #define MAX_PROP_VALUE_LEN 256
@@ -286,12 +287,10 @@ void *workerThread(void *args)
  ? FUNZIONALITA
  //0 Parsing dei libri dal file passato come argomento in una struttura condivisa
 
- -1 Se il file passato come argomento è valido si creano un file di log e un nuovo socket
+ //1 Se il file passato come argomento è valido si creano un file di log e un nuovo socket
 
- -2 Una volta avviato il socket il server "comunica" la sua operatività scrivendo i suoi dati nel flie ./bib.conf con il formato seguente:
- *nome:[nome]
- *hostname:[hostname]
- *port:[porta]
+ //2 Una volta avviato il socket il server "comunica" la sua operatività scrivendo i suoi dati nel flie ./bib.conf con il formato seguente:
+ *nome:[nome];indirizzo:[hostname];porta:[porta];
 
  -3 Il server si mette in ascolto per aspettare la connessione dei client (NON BLOCCANTE)
 
@@ -328,7 +327,16 @@ int main(int argc, char **argv)
         printProperties(all_books[i]);
     }
 
-    printf("Inizializzati libri, avvio socket...\n");
+    printf("Fatto il parsing dei libri, creo il file di log...\n");
+
+    //- creo il file di log
+    FILE *logFile;
+    char logName[strlen(argv[1]) + 5];
+    //* il log si chiama nomebib.log
+    snprintf(logName, strlen(argv[1]) + 5, "%s.log", argv[1]);
+    logFile = Fopen(logName, "w+");
+
+    printf("Creato file di log, avvio socket...\n");
 
     //- inizializzazione socket
     int server_fd;
@@ -338,7 +346,8 @@ int main(int argc, char **argv)
 
     pthread_t tid[atoi(argv[3])];
 
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+    //* il socket è impostato su non bloccante per permettere il ricevimento di messaggi e la connessione di altri client da parte del solo main thread
+    if ((server_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)) < 0)
     {
         Perror("socket failed");
         exit(EXIT_FAILURE);
@@ -370,6 +379,15 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
+    printf("Avviato socket, scrivo bib.conf...\n");
+
+    //- scrive nel file bib.conf i propri dati
+    FILE *confFile;
+    // apre in modalità append per non sovrascrivere dati di altri server e creare il file se non esiste
+    confFile = Fopen("bib.conf", "a");
+
+    fprintf(confFile, "nome:%s;indirizzo:%s;porta:%d;\n", argv[1], "127.0.0.1", PORT);
+
     //- avvio thread per elaborazione richieste
     for (int i = 0; i < numeroWorker; i++)
     {
@@ -378,28 +396,29 @@ int main(int argc, char **argv)
     }
 
     clientSocket = (int *)malloc(sizeof(int));
-    connessioniAttive = 1;
     int tempSock;
+    connessioniAttive = 0;
     char buffer[1024];
     // TODO accettazione client (ciclo infinito fino a segnale SIGINT)
     while (!stopSignal)
     {
         //- controlla se ci sono client a cui accettare la richiesta di connessione
-        tempSock = accept4(server_fd, NULL, NULL, SOCK_NONBLOCK);
+        printf("Accetto...\n");
+        clientSocket[connessioniAttive] = accept(server_fd, NULL, NULL);
 
-        //- check se si è connesso un nuovo client
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-        {
-            errno = 0;
-            continue;
-        }
-        connessioniAttive++;
+        //- se si è connesso un nuovo client aumento il contatore
+        if (tempSock != -1)
+            connessioniAttive++;
 
+        printf("Ascolto richieste...\n");
         //- controlla se sono arrivate richieste
-        recv(tempSock, buffer, 1024, NULL);
+        recv(clientSocket, buffer, 1024, 0);
+
+        sleep(1);
     }
     //* esco dopo che l'handler dei segnali ha impostato la variabile a 1
 
+    printf("Terminazione worker...\n");
     //- aspetta terminazione dei worker
     for (int i = 0; i < numeroWorker; i++)
         pthread_join(tid[i], NULL);
@@ -410,13 +429,16 @@ int main(int argc, char **argv)
 
     //- termina la scrittura del log
 
-    free(tid);
+    for (int i = 0; i < numeroWorker; i++)
+        free(tid);
     free(clientSocket);
     close(server_fd);
 
     free(all_books);
     free(all_props);
     fclose(f);
+    fclose(logFile);
+    fclose(confFile);
 
     return 0;
 }
