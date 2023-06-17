@@ -67,7 +67,8 @@ Book **all_books;
 size_t all_books_len;
 Property **all_props;
 size_t all_props_len;
-int *tid, *clientSocket;
+Client_req **client_req;
+int *tid;
 int connessioniAttive;
 int numeroWorker;
 int stopSignal = 0;
@@ -218,7 +219,7 @@ void parseDati(FILE *file)
     free(prop_name);
 }
 
-// TODO gestione segnali
+// gestione segnali
 static void gestore(int signum)
 {
     stopSignal = 1;
@@ -292,7 +293,7 @@ void *workerThread(void *args)
  //2 Una volta avviato il socket il server "comunica" la sua operatività scrivendo i suoi dati nel flie ./bib.conf con il formato seguente:
  *nome:[nome];indirizzo:[hostname];porta:[porta];
 
- -3 Il server si mette in ascolto per aspettare la connessione dei client (NON BLOCCANTE)
+ //3 Il server si mette in ascolto per aspettare la connessione dei client (NON BLOCCANTE)
 
  -4 Le richieste dei client vengono messe in una coda condivisa tra gli worker
 
@@ -395,26 +396,34 @@ int main(int argc, char **argv)
             Perror("thread create");
     }
 
-    clientSocket = (int *)malloc(sizeof(int));
-    int tempSock;
-    connessioniAttive = 0;
-    char buffer[1024];
+    client_req = (Client_req **)malloc(sizeof(Client_req *)); // array di richieste dei client
+    int tempSock;                                             // socket temporaneo
+    connessioniAttive = 0;                                    // connessioni attive
+    char buffer[1024];                                        // buffer di ricezione
     // TODO accettazione client (ciclo infinito fino a segnale SIGINT)
     while (!stopSignal)
     {
+        sleep(1);
         //- controlla se ci sono client a cui accettare la richiesta di connessione
         printf("Accetto...\n");
-        clientSocket[connessioniAttive] = accept(server_fd, NULL, NULL);
+        tempSock = accept(server_fd, NULL, NULL);
 
         //- se si è connesso un nuovo client aumento il contatore
         if (tempSock != -1)
+        {
             connessioniAttive++;
+            client_req = (Client_req **)realloc(client_req, sizeof(Client_req *) * connessioniAttive);
+            client_req[connessioniAttive - 1] = malloc(sizeof(Client_req));
+
+            client_req[connessioniAttive - 1]->clientSocket = tempSock;
+        }
+
+        if (connessioniAttive <= 0)
+            continue;
 
         printf("Ascolto richieste...\n");
         //- controlla se sono arrivate richieste
-        recv(clientSocket, buffer, 1024, 0);
-
-        sleep(1);
+        recv(client_req[connessioniAttive - 1]->clientSocket, buffer, 1024, 0);
     }
     //* esco dopo che l'handler dei segnali ha impostato la variabile a 1
 
@@ -425,13 +434,16 @@ int main(int argc, char **argv)
 
     //- chiude socket
     for (int i = 0; i < connessioniAttive; i++)
-        close(clientSocket[i]);
+    {
+        close(client_req[i]->clientSocket);
+        free(client_req[i]);
+    }
 
     //- termina la scrittura del log
 
     for (int i = 0; i < numeroWorker; i++)
         free(tid);
-    free(clientSocket);
+    free(client_req);
     close(server_fd);
 
     free(all_books);
