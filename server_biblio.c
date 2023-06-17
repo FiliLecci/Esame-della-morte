@@ -338,7 +338,6 @@ int main(int argc, char **argv)
 
     pthread_t tid[atoi(argv[3])];
 
-    //* il socket è impostato su non bloccante per permettere il ricevimento dei messaggi
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
         Perror("socket failed");
@@ -386,8 +385,7 @@ int main(int argc, char **argv)
     while (!stopSignal)
     {
         //- controlla se ci sono client a cui accettare la richiesta di connessione
-        if ((tempSock = accept4(server_fd, NULL, NULL, SOCK_NONBLOCK)) < 0)
-            Perror("richiesta rifiutata");
+        tempSock = accept4(server_fd, NULL, NULL, SOCK_NONBLOCK);
 
         //- check se si è connesso un nuovo client
         if (errno == EAGAIN || errno == EWOULDBLOCK)
