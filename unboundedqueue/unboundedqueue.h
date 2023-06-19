@@ -3,7 +3,7 @@ typedef struct richiesta
     int clientSocket; // socket del client che ha fatto la richiesta
     char tipo;        // tipo di richiesta: 'Q' o 'L'
     int lunghezza;    // lunghezza della richiesta
-    char *req;        // rihiesta nel formato proprietà:valore
+    char *req;        // rihiesta nel formato proprietà:valore;
     struct richiesta *next;
 } Client_req;
 

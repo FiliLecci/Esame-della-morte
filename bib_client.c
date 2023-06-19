@@ -2,68 +2,68 @@
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <errno.h>
 
-typedef enum TipoRichiesta
-{
-    MSG_QUERY,
-    MSG_LOAN
-} Richiesta_tipo_t;
+#define MAX_PROP_NAME_LEN 256
+#define MAX_PROP_VALUE_LEN 256
+#define MAX_LINE_LENGTH 1024
 
-typedef char *String;
-
-// tipo per tenere una data; i campi sono a 0 se non devono essere considerati
 typedef struct
 {
-    int giorno;
-    int mese;
-    int anno;
-} Data_t;
+    unsigned char day;
+    unsigned char month;
+    unsigned short year;
+} Date;
 
-// union per i vari tipi di valori
 typedef union
 {
-    Data_t data;
-    String stringa;
-} Proprieta_tipi_t;
+    char *string[MAX_PROP_VALUE_LEN];
+    Date date;
+} Value;
 
-// struct del nodo per la lista di proprietà di un libro
-typedef struct Nodo
+typedef struct node
 {
-    String nomeProprieta;    // nome proprietà
-    Proprieta_tipi_t valori; // valore per la proprietà
-    struct Nodo *prev;       // nodo precendente
-    struct Nodo *next;       // nodo successivo
-} Proprieta_t;
+    char name[MAX_PROP_NAME_LEN];
 
-// ogni libro è rappresentato come una lista di proprietà
+    // valType = 0 -> char *
+    // valType = 1 -> date
+    unsigned char valType;
+    Value value;
+
+    struct node *next;
+} Property;
+
 typedef struct
 {
-    Proprieta_t testa; // elemento di testa della lista di proprietà
-    int lunghezza;     // lunghezza della lista
-} Libro_t;
+    size_t size;
+    Property *head;
+    Property *tail;
+} Book;
 
-// struct per tenere la richiesta da fare al server
 typedef struct
 {
-    Richiesta_tipo_t tipo;
+    char tipo; // Query 'Q' - Loan 'L'
     size_t lunghezza;
-    String dati;
+    char *dati;
 } Richiesta_t;
 
 // struct dei server a cui fare la richiesta
 typedef struct
 {
-    String nome;      // nome del server
-    String indirizzo; // indirizzo ip del server
-    int porta;        // porta per accedere al server
-    int fd_server;    // file descriptor della connect al server
+    char *nome;      // nome del server
+    char *indirizzo; // indirizzo ip del server
+    int porta;       // porta per accedere al server
+    int fd_server;   // file descriptor della connect al server
 } Server_t;
 
 //* FUNZIONI CLASSICHE CON CONTROLLO ERRORI
 
-void Perror(String messaggio)
+void Perror(char *messaggio)
 {
     perror(messaggio);
     exit(EXIT_FAILURE);
@@ -79,8 +79,8 @@ FILE *Fopen(char *filePath, char *mod)
 }
 
 //* FUNZIONI DI UTILITY
-// funzione per rimuovere un carattere c dalla stringa s
-void rimuoviChar(String s, char c)
+// funzione per rimuovere un carattere c dalla char *a s
+void rimuoviChar(char *s, char c)
 {
     int i, j;
     size_t len = strlen(s);
@@ -93,20 +93,46 @@ void rimuoviChar(String s, char c)
     s[j] = '\0';
 }
 
+int startClient(char *indirizzo, int porta)
+{
+    int status = 0, fdClient;
+    struct sockaddr_in indirizzoServer;
+
+    if ((fdClient = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+        Perror("Creazione socket");
+
+    memset(&indirizzoServer, 0, sizeof(struct sockaddr_in));
+
+    indirizzoServer.sin_family = AF_INET;
+    indirizzoServer.sin_port = htons(porta);
+
+    errno = 0;
+
+    if (inet_pton(AF_INET, indirizzo, &indirizzoServer.sin_addr) <= 0)
+        Perror("Indirizzo non valido");
+
+    while ((status = connect(fdClient, (struct sockaddr *)&indirizzoServer,
+                             sizeof(struct sockaddr_in))) == -1 &&
+           errno == ECONNREFUSED)
+        sleep(1);
+
+    return fdClient;
+}
+
 // restituisce un puntatore ad una struct di tipo Richiesta_t contenente i dati ottenuti dal parse
 Richiesta_t *parseDati(int argc, char **argv)
 {
     Richiesta_t *richiesta = (Richiesta_t *)malloc(sizeof(Richiesta_t));
-    String proprieta;
+    char *proprieta;
 
     richiesta->dati = malloc(sizeof(char *));
-    richiesta->tipo = MSG_QUERY;
+    richiesta->tipo = 'Q';
 
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "-p") == 0)
         {
-            richiesta->tipo = MSG_LOAN;
+            richiesta->tipo = 'L';
             continue;
         }
 
@@ -136,8 +162,15 @@ Richiesta_t *parseDati(int argc, char **argv)
 }
 
 // TODO restituisce un array di struct di tipo Server_t contenti i dati letti dal file .conf
-Server_t *parseConfFile(FILE *confFile)
+Server_t **parseConfFile(FILE *confFile)
 {
+    char riga[MAX_LINE_LENGTH];
+    char *tokPtr1;
+
+    // legge riga dal file
+    while (fgets(riga, MAX_LINE_LENGTH, confFile) != NULL)
+        printf("letta riga: %s\n", riga);
+
     return NULL;
 }
 
@@ -187,7 +220,7 @@ int main(int argc, char **argv)
 
     //- legge bib.conf e si connette ai server
     FILE *confFile = Fopen("bib.conf", "r");
-    Server_t *servers;
+    Server_t **servers;
 
     servers = parseConfFile(confFile);
 

@@ -15,6 +15,12 @@ void initCoda()
     numeroRichieste = 0;
     pthread_mutex_init(mutex, NULL);
     pthread_cond_init(cv, NULL);
+    printf("inizializzate cose\n");
+    // inizializzo testa e coda
+    testa = malloc(sizeof(Client_req));
+    printf("inizializzata testa\n");
+    coda = malloc(sizeof(Client_req));
+    printf("inizializzata coda\n");
 }
 
 void destroyCoda()
@@ -28,11 +34,16 @@ void push(Client_req *req)
     pthread_mutex_lock(mutex);
 
     if (numeroRichieste <= 0)
+    {
         testa = req;
-
-    coda->next = req;
-    coda = req;
-    numeroRichieste++;
+        coda = req;
+    }
+    else
+    {
+        coda->next = req;
+        coda = req;
+        numeroRichieste++;
+    }
 
     pthread_mutex_unlock(mutex);
 }

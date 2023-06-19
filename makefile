@@ -5,8 +5,8 @@ LIB = -lpthread
 
 all:
 	clear
-	$(CC) $(FLAGS) bib_client.c -o client.o $(LIB)
-	$(CC) $(FLAGS) server_biblio.c -o server.o $(LIB)
+	$(CC) $(FLAGS) unboundedqueue/unboundedqueue.c bib_client.c -o client.o $(LIB)
+	$(CC) $(FLAGS) unboundedqueue/unboundedqueue.c server_biblio.c -o server.o $(LIB)
 
 valgrind:
 	valgrind --leak-check=full --show-leak-kinds=all ./client.o --autore="shiau" -p

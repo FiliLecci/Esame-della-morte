@@ -13,8 +13,10 @@
 #include <strings.h>
 #include <errno.h>
 #include <semaphore.h>
-
 #include <signal.h>
+
+#include "unboundedqueue/unboundedqueue.h"
+
 #define _GNU_SOURCE
 #define __USE_GNU
 
@@ -22,14 +24,6 @@
 #define MAX_PROP_VALUE_LEN 256
 #define MAX_LINE_LENGTH 1024
 #define PORT 15792
-
-typedef struct
-{
-    int clientSocket; // socket del client che ha fatto la richiesta
-    char tipo;        // tipo di richiesta: 'Q' o 'L'
-    int lunghezza;    // lunghezza della richiesta
-    char *req;        // rihiesta nel formato proprietà:valore
-} Client_req;
 
 typedef struct
 {
@@ -63,15 +57,15 @@ typedef struct
     Property *tail;
 } Book;
 
-Book **all_books;
-size_t all_books_len;
-Property **all_props;
-size_t all_props_len;
-Client_req **client_req;
-int *tid;
-int connessioniAttive;
-int numeroWorker;
-int stopSignal = 0;
+Book **all_books;        // array di libri
+size_t all_books_len;    // numero di libri
+Property **all_props;    // array di proprietà
+size_t all_props_len;    // numero di proprietà
+Client_req **client_req; // array di tutte le richieste
+int *tid;                // array di tid
+int connessioniAttive;   // numero di connessioni attive
+int numeroWorker;        // nuermo di worker
+int stopSignal = 0;      // segnale di stop per segnali
 
 void Perror(char *messaggio)
 {
@@ -388,6 +382,7 @@ int main(int argc, char **argv)
     confFile = Fopen("bib.conf", "a");
 
     fprintf(confFile, "nome:%s;indirizzo:%s;porta:%d;\n", argv[1], "127.0.0.1", PORT);
+    fflush(NULL);
 
     //- avvio thread per elaborazione richieste
     for (int i = 0; i < numeroWorker; i++)
@@ -400,6 +395,12 @@ int main(int argc, char **argv)
     int tempSock;                                             // socket temporaneo
     connessioniAttive = 0;                                    // connessioni attive
     char buffer[1024];                                        // buffer di ricezione
+
+    //- inizializzo la coda
+    printf("inizializzo coda\n");
+    initCoda();
+    printf("cazzarola\n");
+
     // TODO accettazione client (ciclo infinito fino a segnale SIGINT)
     while (!stopSignal)
     {
@@ -416,6 +417,7 @@ int main(int argc, char **argv)
             client_req[connessioniAttive - 1] = malloc(sizeof(Client_req));
 
             client_req[connessioniAttive - 1]->clientSocket = tempSock;
+            push(client_req[connessioniAttive - 1]);
         }
 
         if (connessioniAttive <= 0)
