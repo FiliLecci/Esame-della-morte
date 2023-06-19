@@ -2,19 +2,20 @@
 #include <semaphore.h>
 #include <string.h>
 #include <pthread.h>
+#include <stdio.h>
 
 #include "unboundedqueue.h"
 
-pthread_mutex_t *mutex; // mutex
-pthread_cond_t *cv;
+pthread_mutex_t mutex; // mutex
+pthread_cond_t cv;
 Client_req *testa, *coda;
 int numeroRichieste;
 
 void initCoda()
 {
     numeroRichieste = 0;
-    pthread_mutex_init(mutex, NULL);
-    pthread_cond_init(cv, NULL);
+    pthread_mutex_init(&mutex, NULL);
+    pthread_cond_init(&cv, NULL);
     printf("inizializzate cose\n");
     // inizializzo testa e coda
     testa = malloc(sizeof(Client_req));
@@ -25,13 +26,13 @@ void initCoda()
 
 void destroyCoda()
 {
-    pthread_mutex_destroy(mutex);
-    pthread_cond_destroy(cv);
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&cv);
 }
 
 void push(Client_req *req)
 {
-    pthread_mutex_lock(mutex);
+    pthread_mutex_lock(&mutex);
 
     if (numeroRichieste <= 0)
     {
@@ -45,14 +46,14 @@ void push(Client_req *req)
         numeroRichieste++;
     }
 
-    pthread_mutex_unlock(mutex);
+    pthread_mutex_unlock(&mutex);
 }
 
 Client_req *pop()
 {
-    pthread_mutex_lock(mutex);
+    pthread_mutex_lock(&mutex);
     while (numeroRichieste <= 0)
-        pthread_cond_wait(cv, mutex);
+        pthread_cond_wait(&cv, &mutex);
 
     Client_req *retReq;
 
@@ -61,7 +62,7 @@ Client_req *pop()
 
     retReq->next = NULL;
 
-    pthread_mutex_unlock(mutex);
+    pthread_mutex_unlock(&mutex);
 
     return retReq;
 }

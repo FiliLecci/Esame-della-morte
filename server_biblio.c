@@ -399,9 +399,8 @@ int main(int argc, char **argv)
     //- inizializzo la coda
     printf("inizializzo coda\n");
     initCoda();
-    printf("cazzarola\n");
 
-    // TODO accettazione client (ciclo infinito fino a segnale SIGINT)
+    //* accettazione client (ciclo infinito fino a segnale SIGINT)
     while (!stopSignal)
     {
         sleep(1);

@@ -63,6 +63,9 @@ typedef struct
 
 //* FUNZIONI CLASSICHE CON CONTROLLO ERRORI
 
+Server_t **servers;
+int numeroServer = 0;
+
 void Perror(char *messaggio)
 {
     perror(messaggio);
@@ -125,7 +128,7 @@ Richiesta_t *parseDati(int argc, char **argv)
     Richiesta_t *richiesta = (Richiesta_t *)malloc(sizeof(Richiesta_t));
     char *proprieta;
 
-    richiesta->dati = malloc(sizeof(char *));
+    richiesta->dati = malloc(sizeof(char));
     richiesta->tipo = 'Q';
 
     for (int i = 1; i < argc; i++)
@@ -161,17 +164,49 @@ Richiesta_t *parseDati(int argc, char **argv)
     return richiesta;
 }
 
-// TODO restituisce un array di struct di tipo Server_t contenti i dati letti dal file .conf
-Server_t **parseConfFile(FILE *confFile)
+// restituisce un array di struct di tipo Server_t contenti i dati letti dal file .conf
+void parseConfFile(FILE *confFile)
 {
-    char riga[MAX_LINE_LENGTH];
-    char *tokPtr1;
+    char riga[MAX_LINE_LENGTH]; // riga letta dal file
+    char *token;
+    char *nomeServer, *indirizzoServer; // nome e indirizzo del server
+    char *tokPtr1, *tokPtr2;            // puntatori per strtok_r
+    int portaServer;                    // porta del server
+
+    // inizializzo l'array di server
+    servers = malloc(sizeof(Server_t *));
 
     // legge riga dal file
     while (fgets(riga, MAX_LINE_LENGTH, confFile) != NULL)
-        printf("letta riga: %s\n", riga);
+    {
+        rimuoviChar(riga, '\n');
+        // parse nel nome del server
+        token = strtok_r(riga, ";", &tokPtr1);
+        strtok_r(token, ":", &tokPtr2);
+        nomeServer = strtok_r(NULL, ":", &tokPtr2);
 
-    return NULL;
+        // parse dell'inidirizzo del server
+        token = strtok_r(NULL, ";", &tokPtr1);
+        strtok_r(token, ":", &tokPtr2);
+        indirizzoServer = strtok_r(NULL, ":", &tokPtr2);
+
+        // parse della porta del server
+        token = strtok_r(NULL, ";", &tokPtr1);
+        strtok_r(token, ":", &tokPtr2);
+        portaServer = atoi(strtok_r(NULL, ":", &tokPtr2));
+
+        // inizializzo il nuovo server
+        numeroServer++;
+
+        servers = realloc(servers, sizeof(Server_t *) * numeroServer);
+        servers[numeroServer - 1] = malloc(sizeof(Server_t));
+        servers[numeroServer - 1]->indirizzo = malloc(sizeof(indirizzoServer));
+        servers[numeroServer - 1]->nome = malloc(sizeof(nomeServer));
+
+        strcpy(servers[numeroServer - 1]->nome, nomeServer);
+        strcpy(servers[numeroServer - 1]->indirizzo, indirizzoServer);
+        servers[numeroServer - 1]->porta = portaServer;
+    }
 }
 
 /*
@@ -216,13 +251,15 @@ int main(int argc, char **argv)
     //- parse dei parametri nella struct della richiesta al server
     Richiesta_t *richiesta = parseDati(argc, argv);
 
-    printf("%d, %ld, %s\n", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
+    printf("%c, %ld, %s\n", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
 
     //- legge bib.conf e si connette ai server
     FILE *confFile = Fopen("bib.conf", "r");
-    Server_t **servers;
 
-    servers = parseConfFile(confFile);
+    parseConfFile(confFile);
+
+    for (int i = 0; i < numeroServer; i++)
+        printf("letto: %s, %s, %d\n", servers[i]->nome, servers[i]->indirizzo, servers[i]->porta);
 
     //- invia richiesta al server
 

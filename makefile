@@ -16,6 +16,9 @@ valgrinds:
 
 run:
 	./client.o --titolo="ciao" --autore="pippo" -p
+
+runs:
+	./server.o bib bibData/bib1.txt 1
 	
 gdb:
 	gdb ./server.o --args server.o bib bibData/bib1.txt 1
