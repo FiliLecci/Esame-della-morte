@@ -96,7 +96,7 @@ void rimuoviChar(char *s, char c)
     s[j] = '\0';
 }
 
-int startClient(char *indirizzo, int porta)
+int connettiClient(char *indirizzo, int porta)
 {
     int status = 0, fdClient;
     struct sockaddr_in indirizzoServer;
@@ -234,7 +234,7 @@ void parseConfFile(FILE *confFile)
  ? FUNZIONALITA
  // 1 esegue il parsing delle opzioni
 
- -2 Se il parsing va a buon fine legge il file bib.conf per ottenere le informazioni riguardo a tutti i server disponibili
+ //2 Se il parsing va a buon fine legge il file bib.conf per ottenere le informazioni riguardo a tutti i server disponibili
 
  -3 effettua la richiesta a tutti i server contenuti in bib.conf
 
@@ -253,13 +253,21 @@ int main(int argc, char **argv)
 
     printf("%c, %ld, %s\n", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
 
-    //- legge bib.conf e si connette ai server
+    //- legge bib.conf
     FILE *confFile = Fopen("bib.conf", "r");
 
     parseConfFile(confFile);
 
     for (int i = 0; i < numeroServer; i++)
         printf("letto: %s, %s, %d\n", servers[i]->nome, servers[i]->indirizzo, servers[i]->porta);
+
+    //- connessione ai server e memorizzazione dei file descriptor
+    for (int i = 0; i < numeroServer; i++)
+    {
+        printf("connessione al server %s...\n", servers[i]->nome);
+        servers[i]->fd_server = connettiClient(servers[i]->indirizzo, servers[i]->porta);
+        printf("connesso.\n");
+    }
 
     //- invia richiesta al server
 
