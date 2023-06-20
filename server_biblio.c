@@ -382,7 +382,7 @@ int main(int argc, char **argv)
     confFile = Fopen("bib.conf", "a");
 
     fprintf(confFile, "nome:%s;indirizzo:%s;porta:%d;\n", argv[1], "127.0.0.1", PORT);
-    fflush(NULL);
+    fflush(confFile);
 
     //- avvio thread per elaborazione richieste
     for (int i = 0; i < numeroWorker; i++)
@@ -422,9 +422,20 @@ int main(int argc, char **argv)
         if (connessioniAttive <= 0)
             continue;
 
-        printf("Ascolto richieste...\n");
+        printf("Ascolto richieste da %d client...\n", connessioniAttive);
         //- controlla se sono arrivate richieste
-        recv(client_req[connessioniAttive - 1]->clientSocket, buffer, 1024, 0);
+        for (int i = 0; i < numeroWorker; i++)
+        {
+            printf("Ascolto da client %d\n", client_req[i]->clientSocket);
+            memset(buffer, 0, sizeof(buffer));
+            if (recv(client_req[i]->clientSocket, buffer, 1024, 0) > 0)
+            {
+                printf("ricevuto: %s\n", buffer);
+                // ottengo tipo richiesta
+                // ottengo lunghezza dati significativi
+                // ottengo stringa dei dati
+            }
+        }
     }
     //* esco dopo che l'handler dei segnali ha impostato la variabile a 1
 

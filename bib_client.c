@@ -123,45 +123,68 @@ int connettiClient(char *indirizzo, int porta)
 }
 
 // restituisce un puntatore ad una struct di tipo Richiesta_t contenente i dati ottenuti dal parse
-Richiesta_t *parseDati(int argc, char **argv)
+void parseDati(int argc, char **argv, Richiesta_t *richiesta)
 {
-    Richiesta_t *richiesta = (Richiesta_t *)malloc(sizeof(Richiesta_t));
-    char *proprieta;
+    char *token;
+    char **propArr;         // array di tutte le proprietà
+    int propNum = 0;        // numero di proprietà
+    int isPropPresente = 0; // controllo se la proprietà è già stata inserita
 
+    propArr = malloc(sizeof(char *));
     richiesta->dati = malloc(sizeof(char));
     richiesta->tipo = 'Q';
 
     for (int i = 1; i < argc; i++)
     {
+        printf("prop %d/%d : %s\n", i, argc, argv[i]);
         if (strcmp(argv[i], "-p") == 0)
         {
             richiesta->tipo = 'L';
             continue;
         }
 
-        proprieta = strtok(argv[i], "=");
-
-        // il primo valore è il --proprieta
-        richiesta->dati = realloc(richiesta->dati, sizeof(richiesta->dati) + sizeof(proprieta) + 1);
+        token = strtok(argv[i], "=");
 
         // rimuovo i -
-        rimuoviChar(proprieta, '-');
+        rimuoviChar(token, '-');
 
-        strcat(richiesta->dati, proprieta);
-        strcat(richiesta->dati, ":");
+        // controllo se la proprietà non è già stata inserita
+        for (int i = 0; i < propNum; i++)
+        {
+            if (strcmp(propArr[i], token) == 0)
+            {
+                isPropPresente = 1;
+                printf("saltata proprietà %s\n", token);
+                break;
+            }
+        }
 
-        // il secondo valore è il valore della proprietà
-        proprieta = strtok(NULL, "=");
+        if (!isPropPresente)
+        {
+            // il primo valore è il --proprieta
+            richiesta->dati = realloc(richiesta->dati, sizeof(richiesta->dati) + sizeof(token));
+            propNum++;
+            propArr = realloc(propArr, sizeof(char *) * propNum);
+            propArr[propNum - 1] = malloc(sizeof(token));
 
-        richiesta->dati = realloc(richiesta->dati, sizeof(richiesta->dati) + sizeof(proprieta));
-        strcat(richiesta->dati, proprieta);
+            strcpy(propArr[propNum - 1], token);
+            strcat(richiesta->dati, token);
+            strcat(richiesta->dati, ":");
 
-        strcat(richiesta->dati, ";");
+            // il secondo valore è il valore della proprietà
+            token = strtok(NULL, "=");
+
+            richiesta->dati = realloc(richiesta->dati, sizeof(richiesta->dati) + sizeof(token));
+            strcat(richiesta->dati, token);
+            strcat(richiesta->dati, ";");
+        }
     }
 
     richiesta->lunghezza = strlen(richiesta->dati);
 
-    return richiesta;
+    for (int i = 0; i < propNum; i++)
+        free(propArr[i]);
+    free(propArr);
 }
 
 // restituisce un array di struct di tipo Server_t contenti i dati letti dal file .conf
@@ -249,7 +272,10 @@ int main(int argc, char **argv)
         Perror("Si deve specificare almeno una proprietà da filtrare");
 
     //- parse dei parametri nella struct della richiesta al server
-    Richiesta_t *richiesta = parseDati(argc, argv);
+    Richiesta_t *richiesta;
+
+    richiesta = malloc(sizeof(Richiesta_t));
+    parseDati(argc, argv, richiesta);
 
     printf("%c, %ld, %s\n", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
 
@@ -257,6 +283,16 @@ int main(int argc, char **argv)
     FILE *confFile = Fopen("bib.conf", "r");
 
     parseConfFile(confFile);
+
+    if (numeroServer <= 0)
+    {
+        printf("Nessun server disponibile... terminazione.\n");
+        free(servers);
+        free(richiesta->dati);
+        free(richiesta);
+        fclose(confFile);
+        return 0;
+    }
 
     for (int i = 0; i < numeroServer; i++)
         printf("letto: %s, %s, %d\n", servers[i]->nome, servers[i]->indirizzo, servers[i]->porta);
@@ -266,12 +302,19 @@ int main(int argc, char **argv)
     {
         printf("connessione al server %s...\n", servers[i]->nome);
         servers[i]->fd_server = connettiClient(servers[i]->indirizzo, servers[i]->porta);
-        printf("connesso.\n");
+        printf("connesso, invio richiesta...\n");
+        //- invia richiesta al server
+        send(servers[i]->fd_server, richiesta, sizeof(richiesta), 0);
     }
 
-    //- invia richiesta al server
+    //- aspetta per le risposte dei server e stampa
+    char recBuff[1024];
 
-    //- aspetta per la risposta del server e stampa
+    for (int i = 0; i < numeroServer; i++)
+    {
+        printf("Aspettando risposta dal server %s\n", servers[i]->nome);
+        recv(servers[i]->fd_server, recBuff, 1024, 0);
+    }
 
     //! chiusura/liberazione della memoria usata
     free(richiesta->dati);
