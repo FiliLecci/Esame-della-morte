@@ -298,13 +298,16 @@ int main(int argc, char **argv)
         printf("letto: %s, %s, %d\n", servers[i]->nome, servers[i]->indirizzo, servers[i]->porta);
 
     //- connessione ai server e memorizzazione dei file descriptor
+    char *tempBuffer;
     for (int i = 0; i < numeroServer; i++)
     {
         printf("connessione al server %s...\n", servers[i]->nome);
         servers[i]->fd_server = connettiClient(servers[i]->indirizzo, servers[i]->porta);
         printf("connesso, invio richiesta...\n");
         //- invia richiesta al server
-        send(servers[i]->fd_server, richiesta, sizeof(richiesta), 0);
+        tempBuffer = malloc(sizeof(char) + sizeof(unsigned long) + sizeof(richiesta->dati) + 3);
+        snprintf(tempBuffer, sizeof(char) + sizeof(unsigned long) + sizeof(richiesta->dati) + 3, "%c,%ld,%s", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
+        send(servers[i]->fd_server, tempBuffer, sizeof(tempBuffer), 0);
     }
 
     //- aspetta per le risposte dei server e stampa
@@ -314,10 +317,12 @@ int main(int argc, char **argv)
     {
         printf("Aspettando risposta dal server %s\n", servers[i]->nome);
         recv(servers[i]->fd_server, recBuff, 1024, 0);
+        printf("%s\n", recBuff);
     }
 
     //! chiusura/liberazione della memoria usata
     free(richiesta->dati);
+    free(tempBuffer);
     fclose(confFile);
 
     return 0;

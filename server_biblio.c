@@ -216,16 +216,35 @@ void parseDati(FILE *file)
 // gestione segnali
 static void gestore(int signum)
 {
+    // segnale di stop per i worker thread e main thread
     stopSignal = 1;
+    // segnale per fermare la coda
+    closeConn();
 }
 
 // TODO thread worker prende in carico la prima richiesta nella coda
 void *workerThread(void *args)
 {
-    //- invia risposta al client
+    printf("<LOG> Avviato thread...\n");
+    while (!stopSignal)
+    {
+        //- prende la prima richiesta dalla coda
+        Client_req *req = pop();
 
-    //- chiude la connessione con il client e diminuisce la variabile
+        // se req è NULL non ci sono elementi nella coda e la connessione è chiusa
+        if (req == NULL)
+            break;
 
+        printf("presa richiesta %c, %d, %s\n", req->tipo, req->lunghezza, req->req);
+
+        //- cerca i libri che corrispondono alla query
+
+        //- invia risposta al client
+        send(req->clientSocket, "Ciao pollo", 11, 0);
+
+        //- chiude la connessione con il client
+    }
+    printf("<LOG> Termino thread...\n");
     return NULL;
 }
 
@@ -316,12 +335,6 @@ int main(int argc, char **argv)
 
     parseDati(f);
 
-    for (int i = 0; i < all_books_len; i++)
-    {
-        printf("Libro [%d]\n", i);
-        printProperties(all_books[i]);
-    }
-
     printf("Fatto il parsing dei libri, creo il file di log...\n");
 
     //- creo il file di log
@@ -337,7 +350,7 @@ int main(int argc, char **argv)
     int server_fd;
     struct sockaddr_in indirizzoServer;
     int opt = 1;
-    numeroWorker = atoi(argv[1]);
+    numeroWorker = atoi(argv[3]);
 
     pthread_t tid[atoi(argv[3])];
 
@@ -385,6 +398,7 @@ int main(int argc, char **argv)
     fflush(confFile);
 
     //- avvio thread per elaborazione richieste
+    printf("creo %d thread\n", numeroWorker);
     for (int i = 0; i < numeroWorker; i++)
     {
         if (pthread_create(&tid[i], NULL, workerThread, NULL) != 0)
@@ -395,6 +409,7 @@ int main(int argc, char **argv)
     int tempSock;                                             // socket temporaneo
     connessioniAttive = 0;                                    // connessioni attive
     char buffer[1024];                                        // buffer di ricezione
+    char *token;
 
     //- inizializzo la coda
     printf("inizializzo coda\n");
@@ -416,7 +431,6 @@ int main(int argc, char **argv)
             client_req[connessioniAttive - 1] = malloc(sizeof(Client_req));
 
             client_req[connessioniAttive - 1]->clientSocket = tempSock;
-            push(client_req[connessioniAttive - 1]);
         }
 
         if (connessioniAttive <= 0)
@@ -424,17 +438,29 @@ int main(int argc, char **argv)
 
         printf("Ascolto richieste da %d client...\n", connessioniAttive);
         //- controlla se sono arrivate richieste
-        for (int i = 0; i < numeroWorker; i++)
+        ssize_t msgDim;
+
+        for (int i = 0; i < connessioniAttive; i++)
         {
-            printf("Ascolto da client %d\n", client_req[i]->clientSocket);
+            printf("Ascolto da client %d/%d\n", i, connessioniAttive);
             memset(buffer, 0, sizeof(buffer));
-            if (recv(client_req[i]->clientSocket, buffer, 1024, 0) > 0)
+            if ((msgDim = recv(client_req[i]->clientSocket, buffer, 1024, SOCK_NONBLOCK)) > 0)
             {
                 printf("ricevuto: %s\n", buffer);
-                // ottengo tipo richiesta
-                // ottengo lunghezza dati significativi
-                // ottengo stringa dei dati
+                token = strtok(buffer, ",");
+                client_req[connessioniAttive - 1]->tipo = *token;
+                token = strtok(NULL, ",");
+                client_req[connessioniAttive - 1]->lunghezza = atoi(token);
+                token = strtok(NULL, ",");
+                strcpy(client_req[connessioniAttive - 1]->req, token);
+                push(client_req[connessioniAttive - 1]);
             }
+
+            // ottengo tipo richiesta
+
+            // ottengo lunghezza dati significativi
+            // ottengo stringa dei dati
+            // inserisco la richiesta nella coda condivisa
         }
     }
     //* esco dopo che l'handler dei segnali ha impostato la variabile a 1

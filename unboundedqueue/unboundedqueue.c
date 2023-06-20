@@ -10,9 +10,11 @@ pthread_mutex_t mutex; // mutex
 pthread_cond_t cv;
 Client_req *testa, *coda;
 int numeroRichieste;
+int connClosed;
 
 void initCoda()
 {
+    connClosed = 0;
     numeroRichieste = 0;
     pthread_mutex_init(&mutex, NULL);
     pthread_cond_init(&cv, NULL);
@@ -43,8 +45,9 @@ void push(Client_req *req)
     {
         coda->next = req;
         coda = req;
-        numeroRichieste++;
     }
+    pthread_cond_broadcast(&cv);
+    numeroRichieste++;
 
     pthread_mutex_unlock(&mutex);
 }
@@ -53,7 +56,13 @@ Client_req *pop()
 {
     pthread_mutex_lock(&mutex);
     while (numeroRichieste <= 0)
-        pthread_cond_wait(&cv, &mutex);
+    {
+        printf("connClosed %d\n", connClosed);
+        if (!connClosed)
+            pthread_cond_wait(&cv, &mutex);
+        else
+            return NULL;
+    }
 
     Client_req *retReq;
 
@@ -61,8 +70,16 @@ Client_req *pop()
     testa = testa->next;
 
     retReq->next = NULL;
+    numeroRichieste--;
 
     pthread_mutex_unlock(&mutex);
 
     return retReq;
+}
+
+void closeConn()
+{
+    printf("Chiusura coda...\n");
+    connClosed = 1;
+    pthread_cond_broadcast(&cv);
 }

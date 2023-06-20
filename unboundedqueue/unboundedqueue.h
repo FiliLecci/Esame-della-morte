@@ -13,5 +13,13 @@ void initCoda();
 void destroyCoda();
 // inserisce un elemento in coda
 void push(Client_req *req);
-// toglie l'elemento di testa
+/*
+ * Toglie l'elemento di testa della coda
+
+ ? RETURN VAL
+ * Client_req * se esistono elementi nella coda
+ * NULL se non ci sono elementi nella coda e la connessione è stata chiusa
+*/
 Client_req *pop();
+// segnala che la connesione è stata chiusa
+void closeConn();
