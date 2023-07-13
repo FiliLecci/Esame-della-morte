@@ -222,10 +222,13 @@ static void gestore(int signum)
     closeConn();
 }
 
+void cercaLibri(char *req, char *res)
+{
+}
+
 // TODO thread worker prende in carico la prima richiesta nella coda
 void *workerThread(void *args)
 {
-    printf("<LOG> Avviato thread...\n");
     while (!stopSignal)
     {
         //- prende la prima richiesta dalla coda
@@ -236,6 +239,7 @@ void *workerThread(void *args)
             break;
 
         printf("presa richiesta %c, %d, %s\n", req->tipo, req->lunghezza, req->req);
+        fflush(stdout);
 
         //- cerca i libri che corrispondono alla query
 
@@ -244,7 +248,6 @@ void *workerThread(void *args)
 
         //- chiude la connessione con il client
     }
-    printf("<LOG> Termino thread...\n");
     return NULL;
 }
 
@@ -263,7 +266,7 @@ void *workerThread(void *args)
  *
  ? FILE DEI RECORD
  * I file dei record seguono il seguente formato:
- * <proprieta: valore, <valore>>; ...\n
+ * <proprieta: valore>; ...\n
  *
  * Le proprieta possono essere ripetutte in caso possano avere più valori
  *
@@ -284,7 +287,7 @@ void *workerThread(void *args)
  * Il server risponde sullo stesso socket su cui riceve le richieste
  *
  * Sia richiesta che risposta hanno il formato:
- * [tipo], [lunghezza], [dati]
+ * [tipo],[lunghezza],[dati]
  *
  * Il campo "tipo" è un char che contiene il tipo di messaggio inviato ed assume uno dei seguenti valori:
  * MSG_RECORD 'R' -> "dati" contiene i record di risposta
@@ -308,9 +311,9 @@ void *workerThread(void *args)
 
  //3 Il server si mette in ascolto per aspettare la connessione dei client (NON BLOCCANTE)
 
- -4 Le richieste dei client vengono messe in una coda condivisa tra gli worker
+ //4 Le richieste dei client vengono messe in una coda condivisa tra gli worker
 
- -5 I worker una volta presa una richiesta in carico lavorano su una struttura condivisa contenente tutti le informazioni relative ai libri
+ //5 I worker una volta presa una richiesta in carico lavorano su una struttura condivisa contenente tutti le informazioni relative ai libri
 
  -6 Se viene richiesto un prestito (dalla durata di 30 giorni) si aggiorna LOCALMENTE nella struttura condivisa il campo "prestito" del libro
 
@@ -335,16 +338,12 @@ int main(int argc, char **argv)
 
     parseDati(f);
 
-    printf("Fatto il parsing dei libri, creo il file di log...\n");
-
     //- creo il file di log
     FILE *logFile;
     char logName[strlen(argv[1]) + 5];
     //* il log si chiama nomebib.log
     snprintf(logName, strlen(argv[1]) + 5, "%s.log", argv[1]);
     logFile = Fopen(logName, "w+");
-
-    printf("Creato file di log, avvio socket...\n");
 
     //- inizializzazione socket
     int server_fd;
@@ -387,8 +386,6 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    printf("Avviato socket, scrivo bib.conf...\n");
-
     //- scrive nel file bib.conf i propri dati
     FILE *confFile;
     // apre in modalità append per non sovrascrivere dati di altri server e creare il file se non esiste
@@ -398,7 +395,6 @@ int main(int argc, char **argv)
     fflush(confFile);
 
     //- avvio thread per elaborazione richieste
-    printf("creo %d thread\n", numeroWorker);
     for (int i = 0; i < numeroWorker; i++)
     {
         if (pthread_create(&tid[i], NULL, workerThread, NULL) != 0)
@@ -414,6 +410,7 @@ int main(int argc, char **argv)
     //- inizializzo la coda
     printf("inizializzo coda\n");
     initCoda();
+    token = malloc(sizeof(char *));
 
     //* accettazione client (ciclo infinito fino a segnale SIGINT)
     while (!stopSignal)
@@ -442,25 +439,27 @@ int main(int argc, char **argv)
 
         for (int i = 0; i < connessioniAttive; i++)
         {
-            printf("Ascolto da client %d/%d\n", i, connessioniAttive);
             memset(buffer, 0, sizeof(buffer));
-            if ((msgDim = recv(client_req[i]->clientSocket, buffer, 1024, SOCK_NONBLOCK)) > 0)
-            {
-                printf("ricevuto: %s\n", buffer);
-                token = strtok(buffer, ",");
-                client_req[connessioniAttive - 1]->tipo = *token;
-                token = strtok(NULL, ",");
-                client_req[connessioniAttive - 1]->lunghezza = atoi(token);
-                token = strtok(NULL, ",");
-                strcpy(client_req[connessioniAttive - 1]->req, token);
-                push(client_req[connessioniAttive - 1]);
-            }
+
+            if ((msgDim = recv(client_req[i]->clientSocket, buffer, 1024, SOCK_NONBLOCK)) <= 0)
+                continue;
+
+            printf("ricevuti %ld: %s\n", msgDim, buffer);
 
             // ottengo tipo richiesta
+            token = strtok(buffer, ",");
+            client_req[connessioniAttive - 1]->tipo = *token;
 
             // ottengo lunghezza dati significativi
+            token = strtok(NULL, ",");
+            client_req[connessioniAttive - 1]->lunghezza = atoi(token);
+
             // ottengo stringa dei dati
+            token = strtok(NULL, ",");
+            strcpy(client_req[connessioniAttive - 1]->req, token);
+
             // inserisco la richiesta nella coda condivisa
+            push(client_req[connessioniAttive - 1]);
         }
     }
     //* esco dopo che l'handler dei segnali ha impostato la variabile a 1

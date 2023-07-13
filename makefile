@@ -24,6 +24,7 @@ gdb:
 	gdb ./server.o --args server.o bib bibData/bib1.txt 1
 
 clean:
-	rm -f client.o
-	rm -f server.o
+	rm -f *t.o
+	rm -f *.conf
+	rm -f *.log
 	clear

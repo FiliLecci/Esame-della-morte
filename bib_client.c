@@ -259,9 +259,9 @@ void parseConfFile(FILE *confFile)
 
  //2 Se il parsing va a buon fine legge il file bib.conf per ottenere le informazioni riguardo a tutti i server disponibili
 
- -3 effettua la richiesta a tutti i server contenuti in bib.conf
+ //3 effettua la richiesta a tutti i server contenuti in bib.conf
 
- -4 I record ricevuti dal server sono stampati su stdout
+ //4 I record ricevuti dal server sono stampati su stdout
  */
 
 int main(int argc, char **argv)
@@ -305,8 +305,9 @@ int main(int argc, char **argv)
         servers[i]->fd_server = connettiClient(servers[i]->indirizzo, servers[i]->porta);
         printf("connesso, invio richiesta...\n");
         //- invia richiesta al server
-        tempBuffer = malloc(sizeof(char) + sizeof(unsigned long) + sizeof(richiesta->dati) + 3);
-        snprintf(tempBuffer, sizeof(char) + sizeof(unsigned long) + sizeof(richiesta->dati) + 3, "%c,%ld,%s", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
+        tempBuffer = malloc(sizeof(char) + sizeof(unsigned long) + strlen(richiesta->dati) + 3);
+        snprintf(tempBuffer, sizeof(char) + sizeof(unsigned long) + strlen(richiesta->dati) + 3, "%c,%ld,%s", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
+
         send(servers[i]->fd_server, tempBuffer, sizeof(tempBuffer), 0);
     }
 

@@ -18,12 +18,9 @@ void initCoda()
     numeroRichieste = 0;
     pthread_mutex_init(&mutex, NULL);
     pthread_cond_init(&cv, NULL);
-    printf("inizializzate cose\n");
     // inizializzo testa e coda
     testa = malloc(sizeof(Client_req));
-    printf("inizializzata testa\n");
     coda = malloc(sizeof(Client_req));
-    printf("inizializzata coda\n");
 }
 
 void destroyCoda()
@@ -57,7 +54,6 @@ Client_req *pop()
     pthread_mutex_lock(&mutex);
     while (numeroRichieste <= 0)
     {
-        printf("connClosed %d\n", connClosed);
         if (!connClosed)
             pthread_cond_wait(&cv, &mutex);
         else
@@ -79,7 +75,6 @@ Client_req *pop()
 
 void closeConn()
 {
-    printf("Chiusura coda...\n");
     connClosed = 1;
     pthread_cond_broadcast(&cv);
 }
