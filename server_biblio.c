@@ -15,10 +15,13 @@
 #include <semaphore.h>
 #include <signal.h>
 
-#include "unboundedqueue/unboundedqueue.h"
+#include "./unboundedqueue/unboundedqueue.h"
 
 #define _GNU_SOURCE
 #define __USE_GNU
+
+#define STRING_TYPE 0
+#define DATE_TYPE 1
 
 #define MAX_PROP_NAME_LEN 256
 #define MAX_PROP_VALUE_LEN 256
@@ -57,6 +60,8 @@ typedef struct
     Property *tail;
 } Book;
 
+pthread_mutex_t mutexConnessioni; // mutex per gestire le connessioni attive
+
 Book **all_books;        // array di libri
 size_t all_books_len;    // numero di libri
 Property **all_props;    // array di proprietà
@@ -64,7 +69,7 @@ size_t all_props_len;    // numero di proprietà
 Client_req **client_req; // array di tutte le richieste
 int *tid;                // array di tid
 int connessioniAttive;   // numero di connessioni attive
-int numeroWorker;        // nuermo di worker
+int numeroWorker;        // numero di worker
 int stopSignal = 0;      // segnale di stop per segnali
 
 void Perror(char *messaggio)
@@ -118,7 +123,7 @@ void addProperty(Book *book, Property *property)
     book->size++;
 }
 
-void printProperties(Book *book)
+void printProperties(Book *book, char *res)
 {
     if (book->size == 0)
         return;
@@ -127,12 +132,12 @@ void printProperties(Book *book)
 
     while (follower != NULL)
     {
-        printf("%s : ", follower->name);
+        snprintf(res, sizeof(follower->name) + 3, "%s : ", follower->name);
 
-        if (follower->valType)
-            printf("%d-%d-%d\n", follower->value.date.day, follower->value.date.month, follower->value.date.year);
+        if (follower->valType == DATE_TYPE)
+            snprintf(res, sizeof(Date) + 3, "%d-%d-%d\n", follower->value.date.day, follower->value.date.month, follower->value.date.year);
         else
-            printf("%s\n", follower->value.string);
+            snprintf(res, sizeof(follower->value.string) + 1, "%s\n", follower->value.string);
 
         follower = follower->next;
     }
@@ -222,11 +227,95 @@ static void gestore(int signum)
     closeConn();
 }
 
-void cercaLibri(char *req, char *res)
+int checkProp(Book *libro, char **req, int numeroReq)
 {
+    Property *prop = libro->head;
+    int reqIndex = 0;
+    char *token;
+
+    // scorre le prop
+    while (prop != NULL)
+    {
+        if (reqIndex >= numeroReq)
+            return 1;
+
+        if (strcmp(prop->name, req[reqIndex]) != 0)
+        {
+            prop = prop->next;
+            continue;
+        }
+
+        if (prop->valType == STRING_TYPE)
+        {
+            if (strcmp(prop->value.string, req[reqIndex + 1]) == 0)
+            {
+                prop = libro->head;
+                reqIndex++;
+                continue;
+            }
+            prop = prop->next;
+            continue;
+        }
+
+        token = strtok(req[reqIndex + 1], "-");
+        if (memcmp(token, &prop->value.date.day, sizeof(char)) != 0)
+            break;
+
+        token = strtok(NULL, "-");
+        if (memcmp(token, &prop->value.date.month, sizeof(char)) != 0)
+            break;
+
+        token = strtok(NULL, "-");
+        if (atoi(token) == prop->value.date.year)
+        {
+            prop = libro->head;
+            reqIndex++;
+            break;
+        }
+    }
+    return 0;
 }
 
-// TODO thread worker prende in carico la prima richiesta nella coda
+// cerca un libro che abbia
+void cercaLibri(char *req, char *res)
+{
+    char **props;
+    char *coppia, *token;
+    char *tokPtr1, *tokPtr2;
+    int numeroProp = 0, numeroLibriAccettati = 0;
+
+    props = malloc(sizeof(char *) * 2);
+    coppia = strtok_r(req, ";", &tokPtr1);
+
+    do
+    {
+        // la richiesta arriva come <proprieta:valore>;
+        token = strtok_r(coppia, ":", &tokPtr2);
+        props[numeroProp] = malloc(sizeof(char) * strlen(token) + 1);
+        strcpy(props[numeroProp], token);
+
+        token = strtok_r(NULL, ":", &tokPtr2);
+        props[numeroProp + 1] = malloc(sizeof(char) * strlen(token) + 1);
+        strcpy(props[numeroProp + 1], token);
+
+        numeroProp++;
+        props = realloc(props, sizeof(char *) * (numeroProp * 2));
+    } while ((coppia = strtok_r(NULL, ";", &tokPtr1)) != NULL);
+
+    for (int i = 0; i < all_books_len; i++)
+    {
+        if (checkProp(all_books[i], props, numeroProp) != 0)
+        {
+            printf("trovato...\n");
+            numeroLibriAccettati++;
+            printProperties(all_books[i], res);
+        }
+    }
+
+    free(props);
+}
+
+// thread worker prende in carico la prima richiesta nella coda
 void *workerThread(void *args)
 {
     while (!stopSignal)
@@ -236,17 +325,29 @@ void *workerThread(void *args)
 
         // se req è NULL non ci sono elementi nella coda e la connessione è chiusa
         if (req == NULL)
-            break;
+        {
+            sleep(1);
+            continue;
+        }
 
         printf("presa richiesta %c, %d, %s\n", req->tipo, req->lunghezza, req->req);
         fflush(stdout);
 
+        char *result = malloc(sizeof(char *));
         //- cerca i libri che corrispondono alla query
+        cercaLibri(req->req, result);
 
         //- invia risposta al client
-        send(req->clientSocket, "Ciao pollo", 11, 0);
+        send(req->clientSocket, result, sizeof(result), 0);
 
         //- chiude la connessione con il client
+        pthread_mutex_lock(&mutexConnessioni);
+        connessioniAttive--;
+        pthread_mutex_unlock(&mutexConnessioni);
+
+        shutdown(req->clientSocket, 2);
+
+        free(result);
     }
     return NULL;
 }
@@ -395,6 +496,8 @@ int main(int argc, char **argv)
     fflush(confFile);
 
     //- avvio thread per elaborazione richieste
+    pthread_mutex_init(&mutexConnessioni, NULL);
+
     for (int i = 0; i < numeroWorker; i++)
     {
         if (pthread_create(&tid[i], NULL, workerThread, NULL) != 0)
@@ -404,11 +507,10 @@ int main(int argc, char **argv)
     client_req = (Client_req **)malloc(sizeof(Client_req *)); // array di richieste dei client
     int tempSock;                                             // socket temporaneo
     connessioniAttive = 0;                                    // connessioni attive
-    char buffer[1024];                                        // buffer di ricezione
+    char *buffer;                                             // buffer di ricezione
     char *token;
 
     //- inizializzo la coda
-    printf("inizializzo coda\n");
     initCoda();
     token = malloc(sizeof(char *));
 
@@ -421,6 +523,7 @@ int main(int argc, char **argv)
         tempSock = accept(server_fd, NULL, NULL);
 
         //- se si è connesso un nuovo client aumento il contatore
+        pthread_mutex_lock(&mutexConnessioni);
         if (tempSock != -1)
         {
             connessioniAttive++;
@@ -431,37 +534,47 @@ int main(int argc, char **argv)
         }
 
         if (connessioniAttive <= 0)
+        {
+            pthread_mutex_unlock(&mutexConnessioni);
             continue;
+        }
 
-        printf("Ascolto richieste da %d client...\n", connessioniAttive);
         //- controlla se sono arrivate richieste
-        ssize_t msgDim;
+        size_t dimReq, dim;
 
         for (int i = 0; i < connessioniAttive; i++)
         {
-            memset(buffer, 0, sizeof(buffer));
+            buffer = malloc(5);
 
-            if ((msgDim = recv(client_req[i]->clientSocket, buffer, 1024, SOCK_NONBLOCK)) <= 0)
+            if ((dim = recv(client_req[i]->clientSocket, buffer, 5, SOCK_NONBLOCK)) <= 0)
                 continue;
 
-            printf("ricevuti %ld: %s\n", msgDim, buffer);
+            printf("dim:%ld--%s\n", dim, buffer);
 
-            // ottengo tipo richiesta
+            //  ottengo tipo richiesta
             token = strtok(buffer, ",");
             client_req[connessioniAttive - 1]->tipo = *token;
 
             // ottengo lunghezza dati significativi
             token = strtok(NULL, ",");
-            client_req[connessioniAttive - 1]->lunghezza = atoi(token);
+            dimReq = atoi(token);
+            client_req[connessioniAttive - 1]->lunghezza = dimReq;
+
+            // devo allocare la dimenzione dei bit significativi
+            buffer = realloc(buffer, dimReq);
 
             // ottengo stringa dei dati
-            token = strtok(NULL, ",");
-            strcpy(client_req[connessioniAttive - 1]->req, token);
+            dim = recv(client_req[i]->clientSocket, buffer, dimReq, SOCK_NONBLOCK);
+            printf("Ricevuti %ld bit--%s\n", dim, buffer);
+            strcpy(client_req[connessioniAttive - 1]->req, buffer);
 
             // inserisco la richiesta nella coda condivisa
             push(client_req[connessioniAttive - 1]);
+            memset(buffer, 0, dimReq);
         }
+        pthread_mutex_unlock(&mutexConnessioni);
     }
+
     //* esco dopo che l'handler dei segnali ha impostato la variabile a 1
 
     printf("Terminazione worker...\n");

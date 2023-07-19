@@ -96,6 +96,28 @@ void rimuoviChar(char *s, char c)
     s[j] = '\0';
 }
 
+void rimuoviSpaziConsecutivi(char *stringa)
+{
+    size_t lunghezzaStringa = strlen(stringa);
+    int spazioConsecutivoFlag = 0;
+    int ultimoCarattere = 0;
+
+    for (int i = 0; i < lunghezzaStringa; i++)
+    {
+        if (stringa[i] != ' ' && i == 0)
+        {
+            spazioConsecutivoFlag = 0;
+            stringa[ultimoCarattere] = stringa[ultimoCarattere];
+            ultimoCarattere++;
+            continue;
+        }
+
+        // serve per mantenere il primo spazio
+        if (spazioConsecutivoFlag == 0)
+            spazioConsecutivoFlag = 1;
+    }
+}
+
 int connettiClient(char *indirizzo, int porta)
 {
     int status = 0, fdClient;
@@ -126,9 +148,8 @@ int connettiClient(char *indirizzo, int porta)
 void parseDati(int argc, char **argv, Richiesta_t *richiesta)
 {
     char *token;
-    char **propArr;         // array di tutte le proprietà
-    int propNum = 0;        // numero di proprietà
-    int isPropPresente = 0; // controllo se la proprietà è già stata inserita
+    char **propArr;  // array di tutte le proprietà
+    int propNum = 0; // numero di proprietà
 
     propArr = malloc(sizeof(char *));
     richiesta->dati = malloc(sizeof(char));
@@ -153,31 +174,28 @@ void parseDati(int argc, char **argv, Richiesta_t *richiesta)
         {
             if (strcmp(propArr[i], token) == 0)
             {
-                isPropPresente = 1;
                 printf("saltata proprietà %s\n", token);
-                break;
+                return;
             }
         }
 
-        if (!isPropPresente)
-        {
-            // il primo valore è il --proprieta
-            richiesta->dati = realloc(richiesta->dati, sizeof(richiesta->dati) + sizeof(token));
-            propNum++;
-            propArr = realloc(propArr, sizeof(char *) * propNum);
-            propArr[propNum - 1] = malloc(sizeof(token));
+        // il primo valore è il --proprieta
+        richiesta->dati = realloc(richiesta->dati, sizeof(richiesta->dati) + sizeof(token));
+        propNum++;
+        propArr = realloc(propArr, sizeof(char *) * propNum);
+        propArr[propNum - 1] = malloc(sizeof(token));
 
-            strcpy(propArr[propNum - 1], token);
-            strcat(richiesta->dati, token);
-            strcat(richiesta->dati, ":");
+        strcpy(propArr[propNum - 1], token);
+        strcat(richiesta->dati, token);
+        strcat(richiesta->dati, ":");
 
-            // il secondo valore è il valore della proprietà
-            token = strtok(NULL, "=");
+        // il secondo valore è il valore della proprietà
+        token = strtok(NULL, "=");
 
-            richiesta->dati = realloc(richiesta->dati, sizeof(richiesta->dati) + sizeof(token));
-            strcat(richiesta->dati, token);
-            strcat(richiesta->dati, ";");
-        }
+        richiesta->dati = realloc(richiesta->dati, sizeof(richiesta->dati) + sizeof(token));
+        strcat(richiesta->dati, token);
+        strcat(richiesta->dati, ";");
+        rimuoviSpaziConsecutivi(richiesta->dati);
     }
 
     richiesta->lunghezza = strlen(richiesta->dati);
@@ -299,6 +317,7 @@ int main(int argc, char **argv)
 
     //- connessione ai server e memorizzazione dei file descriptor
     char *tempBuffer;
+    unsigned int bufferDim;
     for (int i = 0; i < numeroServer; i++)
     {
         printf("connessione al server %s...\n", servers[i]->nome);
@@ -306,9 +325,11 @@ int main(int argc, char **argv)
         printf("connesso, invio richiesta...\n");
         //- invia richiesta al server
         tempBuffer = malloc(sizeof(char) + sizeof(unsigned long) + strlen(richiesta->dati) + 3);
-        snprintf(tempBuffer, sizeof(char) + sizeof(unsigned long) + strlen(richiesta->dati) + 3, "%c,%ld,%s", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
+        bufferDim = snprintf(tempBuffer, sizeof(char) + sizeof(unsigned long) + strlen(richiesta->dati) + 3, "%c,%ld,%s", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
 
-        send(servers[i]->fd_server, tempBuffer, sizeof(tempBuffer), 0);
+        printf("inviati %d\n", bufferDim);
+
+        send(servers[i]->fd_server, tempBuffer, bufferDim, 0);
     }
 
     //- aspetta per le risposte dei server e stampa

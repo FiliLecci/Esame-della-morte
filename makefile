@@ -15,7 +15,7 @@ valgrinds:
 	valgrind --leak-check=full --show-leak-kinds=all -s ./server.o bib bibData/bib1.txt 1
 
 run:
-	./client.o --titolo="ciao" --autore="pippo" --titolo="pollo" -p
+	./client.o --autore="Di Ciccio, Antonio" -p
 
 runs:
 	./server.o bib bibData/bib1.txt 1

@@ -52,12 +52,10 @@ void push(Client_req *req)
 Client_req *pop()
 {
     pthread_mutex_lock(&mutex);
-    while (numeroRichieste <= 0)
+    if (numeroRichieste <= 0)
     {
-        if (!connClosed)
-            pthread_cond_wait(&cv, &mutex);
-        else
-            return NULL;
+        pthread_mutex_unlock(&mutex);
+        return NULL;
     }
 
     Client_req *retReq;
