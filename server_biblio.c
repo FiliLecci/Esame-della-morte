@@ -130,14 +130,23 @@ void printProperties(Book *book, char *res)
 
     Property *follower = book->head;
 
+    res = malloc(sizeof(char));
+
     while (follower != NULL)
     {
-        snprintf(res, sizeof(follower->name) + 3, "%s : ", follower->name);
+        res = realloc(res, sizeof(res) + sizeof(char) * MAX_PROP_NAME_LEN + 4);
+        snprintf(res, sizeof(char) * MAX_PROP_NAME_LEN + 4, "%s : ", follower->name);
 
         if (follower->valType == DATE_TYPE)
-            snprintf(res, sizeof(Date) + 3, "%d-%d-%d\n", follower->value.date.day, follower->value.date.month, follower->value.date.year);
+        {
+            res = realloc(res, sizeof(res) + sizeof(sizeof(unsigned char) * 2 + sizeof(unsigned short) + 3));
+            snprintf(res, sizeof(unsigned char) * 2 + sizeof(unsigned short) + 3, "%d-%d-%d\n", follower->value.date.day, follower->value.date.month, follower->value.date.year);
+        }
         else
+        {
+            res = realloc(res, sizeof(res) + sizeof(follower->value.string) + 1);
             snprintf(res, sizeof(follower->value.string) + 1, "%s\n", follower->value.string);
+        }
 
         follower = follower->next;
     }
@@ -333,8 +342,8 @@ void *workerThread(void *args)
         printf("presa richiesta %c, %d, %s\n", req->tipo, req->lunghezza, req->req);
         fflush(stdout);
 
-        char *result = malloc(sizeof(char *));
         //- cerca i libri che corrispondono alla query
+        char *result = malloc(sizeof(char *));
         cercaLibri(req->req, result);
 
         //- invia risposta al client
@@ -529,8 +538,10 @@ int main(int argc, char **argv)
             connessioniAttive++;
             client_req = (Client_req **)realloc(client_req, sizeof(Client_req *) * connessioniAttive);
             client_req[connessioniAttive - 1] = malloc(sizeof(Client_req));
+            client_req[connessioniAttive - 1]->next = malloc(sizeof(Client_req *));
 
-            client_req[connessioniAttive - 1]->clientSocket = tempSock;
+            client_req[connessioniAttive - 1]
+                ->clientSocket = tempSock;
         }
 
         if (connessioniAttive <= 0)
@@ -549,27 +560,26 @@ int main(int argc, char **argv)
             if ((dim = recv(client_req[i]->clientSocket, buffer, 5, SOCK_NONBLOCK)) <= 0)
                 continue;
 
-            printf("dim:%ld--%s\n", dim, buffer);
-
             //  ottengo tipo richiesta
             token = strtok(buffer, ",");
-            client_req[connessioniAttive - 1]->tipo = *token;
+            client_req[i]->tipo = *token;
 
             // ottengo lunghezza dati significativi
             token = strtok(NULL, ",");
             dimReq = atoi(token);
-            client_req[connessioniAttive - 1]->lunghezza = dimReq;
+            client_req[i]->lunghezza = dimReq;
 
             // devo allocare la dimenzione dei bit significativi
-            buffer = realloc(buffer, dimReq);
+            buffer = realloc(buffer, sizeof(char) * dimReq + 1);
+            memset(buffer, '\0', sizeof(char) * dimReq + 1);
 
             // ottengo stringa dei dati
-            dim = recv(client_req[i]->clientSocket, buffer, dimReq, SOCK_NONBLOCK);
-            printf("Ricevuti %ld bit--%s\n", dim, buffer);
-            strcpy(client_req[connessioniAttive - 1]->req, buffer);
+            dim = recv(client_req[i]->clientSocket, buffer, dimReq + 1, SOCK_NONBLOCK);
+            client_req[i]->req = malloc(sizeof(char) * dim + 1);
+            strcpy(client_req[i]->req, buffer);
 
             // inserisco la richiesta nella coda condivisa
-            push(client_req[connessioniAttive - 1]);
+            push(client_req[i]);
             memset(buffer, 0, dimReq);
         }
         pthread_mutex_unlock(&mutexConnessioni);
@@ -595,6 +605,8 @@ int main(int argc, char **argv)
         free(tid);
     free(client_req);
     close(server_fd);
+
+    free(buffer);
 
     free(all_books);
     free(all_props);

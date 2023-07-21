@@ -325,11 +325,11 @@ int main(int argc, char **argv)
         printf("connesso, invio richiesta...\n");
         //- invia richiesta al server
         tempBuffer = malloc(sizeof(char) + sizeof(unsigned long) + strlen(richiesta->dati) + 3);
-        bufferDim = snprintf(tempBuffer, sizeof(char) + sizeof(unsigned long) + strlen(richiesta->dati) + 3, "%c,%ld,%s", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
-
-        printf("inviati %d\n", bufferDim);
+        bufferDim = snprintf(tempBuffer, sizeof(char) + sizeof(unsigned long) + strlen(richiesta->dati) + 2, "%c,%ld,%s", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
 
         send(servers[i]->fd_server, tempBuffer, bufferDim, 0);
+
+        printf("inviati %d\n", bufferDim);
     }
 
     //- aspetta per le risposte dei server e stampa

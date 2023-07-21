@@ -16,9 +16,9 @@ void push(Client_req *req);
 /*
  * Toglie l'elemento di testa della coda
 
- ? RETURN VAL
- * Client_req * se esistono elementi nella coda
- * NULL se non ci sono elementi nella coda e la connessione è stata chiusa
+ @return
+ Client_req * se esistono elementi nella coda,
+ NULL se non ci sono elementi nella coda e la connessione è stata chiusa
 */
 Client_req *pop();
 // segnala che la connesione è stata chiusa
