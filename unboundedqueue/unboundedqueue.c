@@ -27,6 +27,9 @@ void destroyCoda()
 {
     pthread_mutex_destroy(&mutex);
     pthread_cond_destroy(&cv);
+
+    free(testa);
+    free(coda);
 }
 
 void push(Client_req *req)

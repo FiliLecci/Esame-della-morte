@@ -9,10 +9,10 @@ all:
 	$(CC) $(FLAGS) unboundedqueue/unboundedqueue.c server_biblio.c -o server.o $(LIB)
 
 valgrind:
-	valgrind --leak-check=full --show-leak-kinds=all ./client.o --autore="shiau" -p
+	valgrind --track-origins=yes --leak-check=full --show-leak-kinds=all ./client.o --autore="shiau" -p
 
 valgrinds:
-	valgrind --leak-check=full --show-leak-kinds=all -s ./server.o bib bibData/bib1.txt 1
+	valgrind --track-origins=yes --leak-check=full --show-leak-kinds=all -s ./server.o bib bibData/bib1.txt 1
 
 run:
 	./client.o --autore="Di Ciccio, Antonio" -p

@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <semaphore.h>
 #include <signal.h>
+#include <inttypes.h>
 
 #include "./unboundedqueue/unboundedqueue.h"
 
@@ -26,6 +27,7 @@
 #define MAX_PROP_NAME_LEN 256
 #define MAX_PROP_VALUE_LEN 256
 #define MAX_LINE_LENGTH 1024
+#define MAX_SERVER_CONF_LENGTH 256 // nome + 39 incluso \n quindi nome = 217
 #define PORT 15792
 
 typedef struct
@@ -87,27 +89,34 @@ FILE *Fopen(char *filePath, char *mod)
     return f;
 }
 
-char *noSpace(char *str)
+void noSpace(char *stringa)
 {
-    // Ignora gli spazi all'inizio della stringa
-    while (isspace((unsigned char)*str))
+    size_t lunghezzaStringa = strlen(stringa);
+    int spazioConsecutivoFlag = 0;
+    int ultimoCarattere = 0;
+
+    for (int i = 0; i < lunghezzaStringa; i++)
     {
-        str++;
+        if (i == 0 && isspace(stringa[i]) != 0)
+        {
+            spazioConsecutivoFlag = 1;
+            continue;
+        }
+
+        if (isspace(stringa[i]) == 0)
+        {
+            stringa[ultimoCarattere++] = stringa[i];
+            spazioConsecutivoFlag = 0;
+            continue;
+        }
+
+        if (spazioConsecutivoFlag == 0)
+        {
+            stringa[ultimoCarattere++] = stringa[i];
+            spazioConsecutivoFlag = 1;
+        }
     }
-
-    // Ignora gli spazi alla fine della stringa
-    char *end = str + strlen(str) - 1;
-    while (end > str && isspace((unsigned char)*end))
-    {
-        end--;
-    }
-    end[1] = '\0'; // Imposta il terminatore nullo dopo l'ultimo carattere valido
-
-    // Crea una nuova stringa e copia la parte senza spazi
-    char *result = malloc(strlen(str) + 1);
-    strcpy(result, str);
-
-    return result;
+    stringa[ultimoCarattere] = '\0';
 }
 
 // Inserimento in testa
@@ -123,33 +132,29 @@ void addProperty(Book *book, Property *property)
     book->size++;
 }
 
+// scrive il libro 'book' come stringa in 'res'
 void printProperties(Book *book, char *res)
 {
-    if (book->size == 0)
-        return;
+    char *tempRes;
+    Property *prop = book->head;
+    size_t resultLen = 0;
 
-    Property *follower = book->head;
+    tempRes = malloc(sizeof(char));
 
-    res = malloc(sizeof(char));
-
-    while (follower != NULL)
+    while (prop != NULL)
     {
-        res = realloc(res, sizeof(res) + sizeof(char) * MAX_PROP_NAME_LEN + 4);
-        snprintf(res, sizeof(char) * MAX_PROP_NAME_LEN + 4, "%s : ", follower->name);
+        tempRes = realloc(tempRes, resultLen + strlen(prop->name) + 1);
+        strcat(tempRes, prop->name);
+        strcat(tempRes, "\n");
 
-        if (follower->valType == DATE_TYPE)
-        {
-            res = realloc(res, sizeof(res) + sizeof(sizeof(unsigned char) * 2 + sizeof(unsigned short) + 3));
-            snprintf(res, sizeof(unsigned char) * 2 + sizeof(unsigned short) + 3, "%d-%d-%d\n", follower->value.date.day, follower->value.date.month, follower->value.date.year);
-        }
-        else
-        {
-            res = realloc(res, sizeof(res) + sizeof(follower->value.string) + 1);
-            snprintf(res, sizeof(follower->value.string) + 1, "%s\n", follower->value.string);
-        }
+        resultLen = strlen(tempRes);
 
-        follower = follower->next;
+        prop = prop->next;
     }
+
+    strcpy(res, tempRes);
+
+    free(tempRes);
 }
 
 void parseDati(FILE *file)
@@ -173,7 +178,7 @@ void parseDati(FILE *file)
         book_ptr->size = 0;
         book_ptr->head = book_ptr->tail = NULL;
 
-        // Tokenizzo le proprietà
+        // Separo le proprietà
         for (property_token = strtok_r(buffer, ";", &lastb); property_token; property_token = strtok_r(NULL, ";", &lastb))
         {
             //* Ho trovato una nuova proprietà
@@ -183,22 +188,22 @@ void parseDati(FILE *file)
 
             Property *prop_ptr = all_props[all_props_len - 1];
 
-            // Inizializzo la nuova proprietà
+            //* Inizializzo la nuova proprietà
             memset(prop_ptr->name, 0, MAX_PROP_NAME_LEN);
             prop_ptr->valType = 0;
             memset(&prop_ptr->value, 0, sizeof(Value));
             prop_ptr->next = NULL;
 
-            // Inserisco il nome della proprietà
+            //* Inserisco il nome della proprietà
             prop_name = strtok_r(property_token, ":", &lastp);
-            prop_name = noSpace(prop_name);
+            noSpace(prop_name);
 
             if (strlen(prop_name) == 0)
                 continue;
 
             strncpy(prop_ptr->name, prop_name, MAX_PROP_NAME_LEN);
 
-            // Distinguo tra prestito e non
+            //* Distinguo tra prestito e non
             if (strcmp(prop_ptr->name, "prestito") == 0)
             {
                 prop_ptr->valType = 1;
@@ -206,9 +211,11 @@ void parseDati(FILE *file)
                 prop_value = strtok_r(NULL, ":", &lastp);
                 prop_value = strtok_r(prop_value, "-", &lastp);
                 prop_ptr->value.date.day = (unsigned char)atoi(prop_value);
-                prop_value = strtok_r(prop_value, "-", &lastp);
+
+                prop_value = strtok_r(NULL, "-", &lastp);
                 prop_ptr->value.date.month = (unsigned char)atoi(prop_value);
-                prop_value = strtok_r(prop_value, "-", &lastp);
+
+                prop_value = strtok_r(NULL, "-", &lastp);
                 prop_ptr->value.date.year = (unsigned short)atoi(prop_value);
             }
             else
@@ -216,7 +223,7 @@ void parseDati(FILE *file)
                 prop_ptr->valType = 0;
 
                 prop_value = strtok_r(NULL, ":", &lastp);
-                prop_value = noSpace(prop_value);
+                noSpace(prop_value);
                 strncpy(prop_ptr->value.string, prop_value, MAX_PROP_VALUE_LEN);
             }
 
@@ -224,7 +231,6 @@ void parseDati(FILE *file)
             addProperty(book_ptr, prop_ptr);
         }
     }
-    free(prop_name);
 }
 
 // gestione segnali
@@ -315,9 +321,9 @@ void cercaLibri(char *req, char *res)
     {
         if (checkProp(all_books[i], props, numeroProp) != 0)
         {
-            printf("trovato...\n");
             numeroLibriAccettati++;
             printProperties(all_books[i], res);
+            printf("Libro~~~%s~~~\n", res);
         }
     }
 
@@ -347,18 +353,47 @@ void *workerThread(void *args)
         cercaLibri(req->req, result);
 
         //- invia risposta al client
-        send(req->clientSocket, result, sizeof(result), 0);
+        ssize_t bitSignificativi = strlen(result);
+        char *resultConDimensione = (char *)malloc(bitSignificativi + 5);
+
+        sprintf(resultConDimensione, "%0*ld;%s", 4, bitSignificativi, result);
+
+        printf("Inviata risposta %s\n", resultConDimensione);
+        send(req->clientSocket, resultConDimensione, strlen(resultConDimensione), 0);
 
         //- chiude la connessione con il client
         pthread_mutex_lock(&mutexConnessioni);
         connessioniAttive--;
         pthread_mutex_unlock(&mutexConnessioni);
 
-        shutdown(req->clientSocket, 2);
+        shutdown(req->clientSocket, SHUT_RDWR);
 
         free(result);
+        free(resultConDimensione);
     }
     return NULL;
+}
+
+int inserisciConfigurazioneServer(FILE *confFile, char *nome)
+{
+    char *buffer = malloc(MAX_SERVER_CONF_LENGTH);
+    char *configurazioneServerCorrente = malloc(MAX_SERVER_CONF_LENGTH);
+
+    sprintf(configurazioneServerCorrente, "nome:%s;indirizzo:%s;porta:%d;", nome, "127.0.0.1", PORT);
+
+    while (fgets(buffer, MAX_SERVER_CONF_LENGTH, confFile))
+    {
+        if (strcmp(buffer, configurazioneServerCorrente) == 0 || strcmp(buffer, strcat(configurazioneServerCorrente, "\n")) == 0)
+        {
+            free(buffer);
+            free(configurazioneServerCorrente);
+            return 1;
+        }
+    }
+
+    fwrite(strcat(configurazioneServerCorrente, "\n"), 1, strlen(configurazioneServerCorrente) + 1, confFile);
+
+    return 0;
 }
 
 /*
@@ -386,11 +421,15 @@ void *workerThread(void *args)
  * Ogni richiesta processata si registra in un file di log nome_bib.log che viene svuotato ad ogni nuova accensione del server.
  *
  * Per ogni richiesta di tipo MSG_QUERY si rispetta il formato seguente:
- * <record cha soddisfano la query>
+ * <record 1>
+ * <record 2>
+ * ...
  * QUERY [#record]
  *
  * Per ogni richiesta di tipo MSG_LOAN si rispetta il formato seguente:
- * <record cha soddisfano la query>
+ * <record 1>
+ * <record 2>
+ * ...
  * LOAN [#record con prestito approvato]
  *
  ? RISPOSTA SERVER
@@ -499,10 +538,10 @@ int main(int argc, char **argv)
     //- scrive nel file bib.conf i propri dati
     FILE *confFile;
     // apre in modalità append per non sovrascrivere dati di altri server e creare il file se non esiste
-    confFile = Fopen("bib.conf", "a");
+    confFile = Fopen("bib.conf", "a+");
 
-    fprintf(confFile, "nome:%s;indirizzo:%s;porta:%d;\n", argv[1], "127.0.0.1", PORT);
-    fflush(confFile);
+    inserisciConfigurazioneServer(confFile, argv[1]);
+    fclose(confFile);
 
     //- avvio thread per elaborazione richieste
     pthread_mutex_init(&mutexConnessioni, NULL);
@@ -517,18 +556,18 @@ int main(int argc, char **argv)
     int tempSock;                                             // socket temporaneo
     connessioniAttive = 0;                                    // connessioni attive
     char *buffer;                                             // buffer di ricezione
-    char *token;
+
+    buffer = malloc(7);
 
     //- inizializzo la coda
     initCoda();
-    token = malloc(sizeof(char *));
 
     //* accettazione client (ciclo infinito fino a segnale SIGINT)
     while (!stopSignal)
     {
         sleep(1);
         //- controlla se ci sono client a cui accettare la richiesta di connessione
-        printf("Accetto...\n");
+        printf("Accetto...\a\n");
         tempSock = accept(server_fd, NULL, NULL);
 
         //- se si è connesso un nuovo client aumento il contatore
@@ -552,12 +591,12 @@ int main(int argc, char **argv)
 
         //- controlla se sono arrivate richieste
         size_t dimReq, dim;
+        char *token;
 
         for (int i = 0; i < connessioniAttive; i++)
         {
-            buffer = malloc(5);
 
-            if ((dim = recv(client_req[i]->clientSocket, buffer, 5, SOCK_NONBLOCK)) <= 0)
+            if ((dim = recv(client_req[i]->clientSocket, buffer, 7, SOCK_NONBLOCK)) <= 0)
                 continue;
 
             //  ottengo tipo richiesta
@@ -580,7 +619,7 @@ int main(int argc, char **argv)
 
             // inserisco la richiesta nella coda condivisa
             push(client_req[i]);
-            memset(buffer, 0, dimReq);
+            memset(buffer, '\0', dimReq);
         }
         pthread_mutex_unlock(&mutexConnessioni);
     }
@@ -601,18 +640,23 @@ int main(int argc, char **argv)
 
     //- termina la scrittura del log
 
-    for (int i = 0; i < numeroWorker; i++)
-        free(tid);
     free(client_req);
     close(server_fd);
 
     free(buffer);
 
+    for (int i = 0; i < all_books_len; i++)
+        free(all_books[i]);
     free(all_books);
+
+    for (int i = 0; i < all_props_len; i++)
+        free(all_props[i]);
     free(all_props);
+
     fclose(f);
     fclose(logFile);
-    fclose(confFile);
+
+    destroyCoda();
 
     return 0;
 }

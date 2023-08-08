@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <ctype.h>
 
 #define MAX_PROP_NAME_LEN 256
 #define MAX_PROP_VALUE_LEN 256
@@ -104,18 +105,26 @@ void rimuoviSpaziConsecutivi(char *stringa)
 
     for (int i = 0; i < lunghezzaStringa; i++)
     {
-        if (stringa[i] != ' ' && i == 0)
+        if (i == 0 && isspace(stringa[i]) != 0)
         {
-            spazioConsecutivoFlag = 0;
-            stringa[ultimoCarattere] = stringa[ultimoCarattere];
-            ultimoCarattere++;
+            spazioConsecutivoFlag = 1;
             continue;
         }
 
-        // serve per mantenere il primo spazio
+        if (isspace(stringa[i]) == 0)
+        {
+            stringa[ultimoCarattere++] = stringa[i];
+            spazioConsecutivoFlag = 0;
+            continue;
+        }
+
         if (spazioConsecutivoFlag == 0)
+        {
+            stringa[ultimoCarattere++] = stringa[i];
             spazioConsecutivoFlag = 1;
+        }
     }
+    stringa[ultimoCarattere] = '\0';
 }
 
 int connettiClient(char *indirizzo, int porta)
@@ -317,29 +326,44 @@ int main(int argc, char **argv)
 
     //- connessione ai server e memorizzazione dei file descriptor
     char *tempBuffer;
-    unsigned int bufferDim;
+    ssize_t bufferDim;
     for (int i = 0; i < numeroServer; i++)
     {
         printf("connessione al server %s...\n", servers[i]->nome);
         servers[i]->fd_server = connettiClient(servers[i]->indirizzo, servers[i]->porta);
         printf("connesso, invio richiesta...\n");
+
         //- invia richiesta al server
         tempBuffer = malloc(sizeof(char) + sizeof(unsigned long) + strlen(richiesta->dati) + 3);
-        bufferDim = snprintf(tempBuffer, sizeof(char) + sizeof(unsigned long) + strlen(richiesta->dati) + 2, "%c,%ld,%s", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
+        bufferDim = sprintf(tempBuffer, "%c,%0*ld,%s", richiesta->tipo, 4, richiesta->lunghezza, richiesta->dati);
 
         send(servers[i]->fd_server, tempBuffer, bufferDim, 0);
 
-        printf("inviati %d\n", bufferDim);
+        printf("inviati %ld: %s\n", bufferDim, tempBuffer);
     }
 
     //- aspetta per le risposte dei server e stampa
-    char recBuff[1024];
+    char *recBuff = (char *)malloc(5);
+    char *token;
+    ssize_t dimensioneRisposta;
 
     for (int i = 0; i < numeroServer; i++)
     {
         printf("Aspettando risposta dal server %s\n", servers[i]->nome);
-        recv(servers[i]->fd_server, recBuff, 1024, 0);
+        // i primi 5 caratteri sono il numero dei bit significativi
+        recv(servers[i]->fd_server, recBuff, 5, 0);
+
+        token = strtok(recBuff, ";");
+        dimensioneRisposta = atoi(token) + 1;
+
+        recBuff = realloc(recBuff, dimensioneRisposta);
+        memset(recBuff, '\0', dimensioneRisposta);
+
+        recv(servers[i]->fd_server, recBuff, dimensioneRisposta, 0);
+
         printf("%s\n", recBuff);
+
+        shutdown(servers[i]->fd_server, SHUT_RDWR);
     }
 
     //! chiusura/liberazione della memoria usata
