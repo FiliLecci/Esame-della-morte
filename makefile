@@ -5,8 +5,8 @@ LIB = -lpthread
 
 all:
 	clear
-	$(CC) $(FLAGS) unboundedqueue/unboundedqueue.c bib_client.c -o client.o $(LIB)
-	$(CC) $(FLAGS) unboundedqueue/unboundedqueue.c server_biblio.c -o server.o $(LIB)
+	$(CC) $(FLAGS) unboundedqueue/unboundedqueue.c bib_client.c -o client $(LIB)
+	$(CC) $(FLAGS) unboundedqueue/unboundedqueue.c server_biblio.c -o server $(LIB)
 
 valgrind:
 	valgrind --leak-check=full --show-leak-kinds=all ./client.o --autore="shiau" -p
@@ -15,13 +15,14 @@ valgrinds:
 	valgrind --leak-check=full --show-leak-kinds=all -s ./server.o bib bibData/bib1.txt 1
 
 run:
-	./client.o --autore="Di Ciccio, Antonio" -p
+	./client --autore="Di Ciccio, Antonio" --editore="Palestro" -p
+.SILENT: run
 
 runs:
-	./server.o bib bibData/bib1.txt 1
+	./server bib bibData/bib1.txt 1
 	
 gdb:
-	gdb ./server.o --args server.o bib bibData/bib1.txt 1
+	gdb ./server --args server.o bib bibData/bib1.txt 1
 
 clean:
 	rm -f *t.o

@@ -318,6 +318,7 @@ void cercaLibri(char *req, char *res)
             printf("trovato...\n");
             numeroLibriAccettati++;
             printProperties(all_books[i], res);
+            printf("[LOG] %s\n", res);
         }
     }
 
@@ -339,8 +340,7 @@ void *workerThread(void *args)
             continue;
         }
 
-        printf("presa richiesta %c, %d, %s\n", req->tipo, req->lunghezza, req->req);
-        fflush(stdout);
+        printf("Richiesta: %c;%d;%s\n", req->tipo, req->lunghezza, req->req);
 
         //- cerca i libri che corrispondono alla query
         char *result = malloc(sizeof(char *));
@@ -464,7 +464,7 @@ int main(int argc, char **argv)
     pthread_t tid[atoi(argv[3])];
 
     //* il socket è impostato su non bloccante per permettere il ricevimento di messaggi e la connessione di altri client da parte del solo main thread
-    if ((server_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)) < 0)
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
         Perror("socket failed");
         exit(EXIT_FAILURE);
@@ -557,15 +557,15 @@ int main(int argc, char **argv)
         {
             buffer = malloc(5);
 
-            if ((dim = recv(client_req[i]->clientSocket, buffer, 5, SOCK_NONBLOCK)) <= 0)
+            if ((dim = recv(client_req[i]->clientSocket, buffer, 5, 0)) <= 0)
                 continue;
 
             //  ottengo tipo richiesta
-            token = strtok(buffer, ",");
+            token = strtok(buffer, ";");
             client_req[i]->tipo = *token;
 
             // ottengo lunghezza dati significativi
-            token = strtok(NULL, ",");
+            token = strtok(NULL, ";");
             dimReq = atoi(token);
             client_req[i]->lunghezza = dimReq;
 
@@ -574,7 +574,7 @@ int main(int argc, char **argv)
             memset(buffer, '\0', sizeof(char) * dimReq + 1);
 
             // ottengo stringa dei dati
-            dim = recv(client_req[i]->clientSocket, buffer, dimReq + 1, SOCK_NONBLOCK);
+            dim = recv(client_req[i]->clientSocket, buffer, dimReq + 1, 0);
             client_req[i]->req = malloc(sizeof(char) * dim + 1);
             strcpy(client_req[i]->req, buffer);
 
@@ -601,8 +601,6 @@ int main(int argc, char **argv)
 
     //- termina la scrittura del log
 
-    for (int i = 0; i < numeroWorker; i++)
-        free(tid);
     free(client_req);
     close(server_fd);
 

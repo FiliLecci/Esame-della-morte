@@ -64,7 +64,7 @@ typedef struct
 //* FUNZIONI CLASSICHE CON CONTROLLO ERRORI
 
 Server_t **servers;
-int numeroServer = 0;
+size_t servers_len = 0;
 
 void Perror(char *messaggio)
 {
@@ -141,113 +141,156 @@ int connettiClient(char *indirizzo, int porta)
            errno == ECONNREFUSED)
         sleep(1);
 
+    if (status == -1)
+        Perror("connect");
+
     return fdClient;
 }
 
-// restituisce un puntatore ad una struct di tipo Richiesta_t contenente i dati ottenuti dal parse
-void parseDati(int argc, char **argv, Richiesta_t *richiesta)
+/**
+ * @brief Fa il parsing di un array di stringhe e salva le informazioni in una Richiesta
+ *
+ * @param buffer Puntatore alla richiesta in cui inserire i dati
+ * @param data Array di stringhe
+ * @param len Lunghezza dell'array
+ *
+ * @returns Numero di proprietà lette
+ */
+size_t parseData(Richiesta_t *buffer, char **data, size_t len)
 {
+    if (buffer == NULL)
+        return 0;
+
+    // default
+    buffer->tipo = 'Q';
+
     char *token;
-    char **propArr;  // array di tutte le proprietà
-    int propNum = 0; // numero di proprietà
+    char **props; // proprietà già inserite
+    size_t props_len = 0;
 
-    propArr = malloc(sizeof(char *));
-    richiesta->dati = malloc(sizeof(char));
-    richiesta->tipo = 'Q';
+    size_t data_len;
 
-    for (int i = 1; i < argc; i++)
+    // itero gli argomenti
+    for (size_t i = 1; i < len; i++)
     {
-        printf("prop %d/%d : %s\n", i, argc, argv[i]);
-        if (strcmp(argv[i], "-p") == 0)
+        // Loan (prestito)
+        if (strcmp(data[i], "-p") == 0)
         {
-            richiesta->tipo = 'L';
+            buffer->tipo = 'L';
             continue;
         }
 
-        token = strtok(argv[i], "=");
-
-        // rimuovo i -
+        token = strtok(data[i], "=");
         rimuoviChar(token, '-');
 
-        // controllo se la proprietà non è già stata inserita
-        for (int i = 0; i < propNum; i++)
-        {
-            if (strcmp(propArr[i], token) == 0)
+        // se la proprietà è già stata inserita, la salto
+        for (size_t j = 0; j < props_len; j++)
+            if (strcmp(token, props[j]) == 0)
             {
-                printf("saltata proprietà %s\n", token);
-                return;
+                token = strtok(NULL, "=");
+                goto SKIP_PROP;
             }
+
+        // aggiungo la proprietà
+        if (props_len == 0)
+        {
+            // prima proprietà inserita
+            data_len = snprintf(NULL, 0, "%s", token) + 1;
+            buffer->dati = (char *)malloc(data_len);
+            snprintf(buffer->dati, data_len, "%s", token);
+        }
+        else
+        {
+            data_len = snprintf(NULL, 0, "%s;%s", buffer->dati, token) + 1;
+            buffer->dati = (char *)realloc(buffer->dati, data_len);
+            snprintf(buffer->dati, data_len, "%s;%s", buffer->dati, token);
         }
 
-        // il primo valore è il --proprieta
-        richiesta->dati = realloc(richiesta->dati, sizeof(richiesta->dati) + sizeof(token));
-        propNum++;
-        propArr = realloc(propArr, sizeof(char *) * propNum);
-        propArr[propNum - 1] = malloc(sizeof(token));
+        // salvo la proprietà tra quelle già inserite
+        props_len++;
+        props = (char **)realloc(props, sizeof(char *) * props_len);
+        props[props_len - 1] = (char *)malloc(sizeof(char) * strlen(token) + 1);
+        strcpy(props[props_len - 1], token);
 
-        strcpy(propArr[propNum - 1], token);
-        strcat(richiesta->dati, token);
-        strcat(richiesta->dati, ":");
-
-        // il secondo valore è il valore della proprietà
+        // aggiungo il valore della proprietà
         token = strtok(NULL, "=");
 
-        richiesta->dati = realloc(richiesta->dati, sizeof(richiesta->dati) + sizeof(token));
-        strcat(richiesta->dati, token);
-        strcat(richiesta->dati, ";");
-        rimuoviSpaziConsecutivi(richiesta->dati);
+        data_len = snprintf(NULL, 0, "%s:%s", buffer->dati, token) + 1;
+        buffer->dati = (char *)realloc(buffer->dati, data_len);
+        snprintf(buffer->dati, data_len, "%s:%s", buffer->dati, token);
+
+    SKIP_PROP:;
     }
 
-    richiesta->lunghezza = strlen(richiesta->dati);
+    buffer->lunghezza = strlen(buffer->dati);
 
-    for (int i = 0; i < propNum; i++)
-        free(propArr[i]);
-    free(propArr);
+    for (size_t i = 0; i < props_len; i++)
+        free(props[i]);
+    free(props);
+
+    return props_len;
 }
 
-// restituisce un array di struct di tipo Server_t contenti i dati letti dal file .conf
-void parseConfFile(FILE *confFile)
+/**
+ * @brief Fa il parsing del file di configurazione e salva le informazioni in un array di Server_t
+ *
+ * @param servers Array di Server
+ * @param config_file Puntatore al file di configurazione
+ * @param len Puntatore alla lunghezza dell'array (NULL se non è importante)
+ */
+void parseConfig(Server_t **servers, FILE *config_file, size_t *len)
 {
-    char riga[MAX_LINE_LENGTH]; // riga letta dal file
+    if (servers == NULL || config_file == NULL)
+        return;
+
+    size_t found = 0;
+    char buffer[MAX_LINE_LENGTH];
+
     char *token;
-    char *nomeServer, *indirizzoServer; // nome e indirizzo del server
-    char *tokPtr1, *tokPtr2;            // puntatori per strtok_r
-    int portaServer;                    // porta del server
+    char *outer_save = NULL;
+    char *inner_save = NULL;
 
-    // inizializzo l'array di server
-    servers = malloc(sizeof(Server_t *));
-
-    // legge riga dal file
-    while (fgets(riga, MAX_LINE_LENGTH, confFile) != NULL)
+    while (fgets(buffer, MAX_LINE_LENGTH, config_file) != NULL)
     {
-        rimuoviChar(riga, '\n');
-        // parse nel nome del server
-        token = strtok_r(riga, ";", &tokPtr1);
-        strtok_r(token, ":", &tokPtr2);
-        nomeServer = strtok_r(NULL, ":", &tokPtr2);
+        // trovata una nuova riga nel file di configurazione
+        found++;
+        servers = (Server_t **)realloc(servers, sizeof(Server_t *) * found);
+        servers[found - 1] = (Server_t *)malloc(sizeof(Server_t));
+        Server_t *server = servers[found - 1];
 
-        // parse dell'inidirizzo del server
-        token = strtok_r(NULL, ";", &tokPtr1);
-        strtok_r(token, ":", &tokPtr2);
-        indirizzoServer = strtok_r(NULL, ":", &tokPtr2);
+        rimuoviChar(buffer, '\n');
 
-        // parse della porta del server
-        token = strtok_r(NULL, ";", &tokPtr1);
-        strtok_r(token, ":", &tokPtr2);
-        portaServer = atoi(strtok_r(NULL, ":", &tokPtr2));
+        // tokenize buffer
+        for (token = strtok_r(buffer, ";", &outer_save); token; token = strtok_r(NULL, ";", &outer_save))
+        {
+            char *inner_token = strtok_r(token, ":", &inner_save);
 
-        // inizializzo il nuovo server
-        numeroServer++;
-
-        servers = realloc(servers, sizeof(Server_t *) * numeroServer);
-        servers[numeroServer - 1] = malloc(sizeof(Server_t));
-        servers[numeroServer - 1]->indirizzo = malloc(sizeof(indirizzoServer));
-        servers[numeroServer - 1]->nome = malloc(sizeof(nomeServer));
-
-        strcpy(servers[numeroServer - 1]->nome, nomeServer);
-        strcpy(servers[numeroServer - 1]->indirizzo, indirizzoServer);
-        servers[numeroServer - 1]->porta = portaServer;
+            if (strcmp(inner_token, "nome") == 0)
+            {
+                inner_token = strtok_r(NULL, ":", &inner_save);
+                server->nome = (char *)malloc(strlen(inner_token) + 1);
+                strcpy(server->nome, inner_token);
+            }
+            else if (strcmp(inner_token, "indirizzo") == 0)
+            {
+                inner_token = strtok_r(NULL, ":", &inner_save);
+                server->indirizzo = (char *)malloc(strlen(inner_token) + 1);
+                strcpy(server->indirizzo, inner_token);
+            }
+            else if (strcmp(inner_token, "porta") == 0)
+            {
+                inner_token = strtok_r(NULL, ":", &inner_save);
+                server->porta = atoi(inner_token);
+            }
+            else
+            {
+                Perror("File di configurazione non valido");
+            }
+        }
     }
+
+    if (len != NULL)
+        *len = found;
 }
 
 /*
@@ -285,67 +328,76 @@ void parseConfFile(FILE *confFile)
 int main(int argc, char **argv)
 {
     if (argc < 2)
-        Perror("Necessario almeno un argomento per efffettuare la richiesta");
-    else if (argc == 2 && strcmp(argv[1], "-p") == 0)
-        Perror("Si deve specificare almeno una proprietà da filtrare");
+        Perror("Necessario almeno un argomento per effettuare la richiesta");
+
+    Richiesta_t richiesta;
 
     //- parse dei parametri nella struct della richiesta al server
-    Richiesta_t *richiesta;
+    if (parseData(&richiesta, argv, argc) == 0)
+        Perror("Si deve specificare almeno una proprietà da filtrare");
 
-    richiesta = malloc(sizeof(Richiesta_t));
-    parseDati(argc, argv, richiesta);
+    FILE *config_file = Fopen("bib.conf", "r");
 
-    printf("%c, %ld, %s\n", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
+    servers = (Server_t **)malloc(sizeof(Server_t *));
 
-    //- legge bib.conf
-    FILE *confFile = Fopen("bib.conf", "r");
+    // parse del file di configurazione
+    parseConfig(servers, config_file, &servers_len);
 
-    parseConfFile(confFile);
-
-    if (numeroServer <= 0)
+    // nessun server trovato
+    if (servers_len <= 0)
     {
         printf("Nessun server disponibile... terminazione.\n");
         free(servers);
-        free(richiesta->dati);
-        free(richiesta);
-        fclose(confFile);
+        free(richiesta.dati);
+        fclose(config_file);
         return 0;
     }
 
-    for (int i = 0; i < numeroServer; i++)
-        printf("letto: %s, %s, %d\n", servers[i]->nome, servers[i]->indirizzo, servers[i]->porta);
+    char *buffer;
+    size_t buffer_len;
 
-    //- connessione ai server e memorizzazione dei file descriptor
-    char *tempBuffer;
-    unsigned int bufferDim;
-    for (int i = 0; i < numeroServer; i++)
+    for (int i = 0; i < servers_len; i++)
     {
+        //- connessione al server
         printf("connessione al server %s...\n", servers[i]->nome);
         servers[i]->fd_server = connettiClient(servers[i]->indirizzo, servers[i]->porta);
-        printf("connesso, invio richiesta...\n");
-        //- invia richiesta al server
-        tempBuffer = malloc(sizeof(char) + sizeof(unsigned long) + strlen(richiesta->dati) + 3);
-        bufferDim = snprintf(tempBuffer, sizeof(char) + sizeof(unsigned long) + strlen(richiesta->dati) + 2, "%c,%ld,%s", richiesta->tipo, richiesta->lunghezza, richiesta->dati);
+        printf("connesso a %s:%d\n", servers[i]->indirizzo, servers[i]->porta);
 
-        send(servers[i]->fd_server, tempBuffer, bufferDim, 0);
+        //-  creazione richiesta
+        buffer_len = snprintf(NULL, 0, "%c;%zu;%s", richiesta.tipo, richiesta.lunghezza, richiesta.dati) + 1;
+        buffer = (char *)malloc(buffer_len);
+        snprintf(buffer, buffer_len, "%c;%zu;%s", richiesta.tipo, richiesta.lunghezza, richiesta.dati);
 
-        printf("inviati %d\n", bufferDim);
+        //- invio richiesta
+        send(servers[i]->fd_server, buffer, buffer_len, 0);
+
+        printf("Richiesta: %s [%zu]\n", buffer, buffer_len);
     }
 
     //- aspetta per le risposte dei server e stampa
     char recBuff[1024];
+    ssize_t status;
 
-    for (int i = 0; i < numeroServer; i++)
+    for (int i = 0; i < servers_len; i++)
     {
         printf("Aspettando risposta dal server %s\n", servers[i]->nome);
-        recv(servers[i]->fd_server, recBuff, 1024, 0);
-        printf("%s\n", recBuff);
+
+        while (1)
+        {
+            status = recv(servers[i]->fd_server, recBuff, 1024, 0);
+
+            if (status == -1)
+                Perror("recv");
+
+            if (status)
+                printf("Risposta: %s\n", recBuff);
+        }
     }
 
-    //! chiusura/liberazione della memoria usata
-    free(richiesta->dati);
-    free(tempBuffer);
-    fclose(confFile);
+    //! chiusura de file e liberazione della memoria usata
+    free(richiesta.dati);
+    free(buffer);
+    fclose(config_file);
 
     return 0;
 }
