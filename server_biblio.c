@@ -133,28 +133,39 @@ void addProperty(Book *book, Property *property)
 }
 
 // scrive il libro 'book' come stringa in 'res'
-void printProperties(Book *book, char *res)
+char *printProperties(Book *book)
 {
     char *tempRes;
     Property *prop = book->head;
-    size_t resultLen = 0;
 
     tempRes = malloc(sizeof(char));
+    strcpy(tempRes, "\0");
 
     while (prop != NULL)
     {
-        tempRes = realloc(tempRes, resultLen + strlen(prop->name) + 1);
+        tempRes = realloc(tempRes, strlen(tempRes) + strlen(prop->name) + 2);
         strcat(tempRes, prop->name);
-        strcat(tempRes, "\n");
+        strcat(tempRes, ":");
 
-        resultLen = strlen(tempRes);
+        if (prop->valType == STRING_TYPE)
+        {
+            tempRes = realloc(tempRes, strlen(tempRes) + strlen(prop->value.string) + 2);
+            strcat(tempRes, prop->value.string);
+            strcat(tempRes, ";");
+        }
+        else
+        {
+            char *dataToString = malloc(13);
+            tempRes = realloc(tempRes, strlen(tempRes) + 12); // 10 caratteri per la data
+
+            sprintf(dataToString, "%d/%d/%d;\n", prop->value.date.day, prop->value.date.month, prop->value.date.year);
+            strcat(tempRes, dataToString);
+        }
 
         prop = prop->next;
     }
 
-    strcpy(res, tempRes);
-
-    free(tempRes);
+    return tempRes;
 }
 
 void parseDati(FILE *file)
@@ -291,8 +302,8 @@ int checkProp(Book *libro, char **req, int numeroReq)
     return 0;
 }
 
-// cerca un libro che abbia
-void cercaLibri(char *req, char *res)
+// cerca i libri che hanno le proprietà corrispondenti
+int cercaLibri(char *req, char **res)
 {
     char **props;
     char *coppia, *token;
@@ -322,17 +333,22 @@ void cercaLibri(char *req, char *res)
         if (checkProp(all_books[i], props, numeroProp) != 0)
         {
             numeroLibriAccettati++;
-            printProperties(all_books[i], res);
-            printf("Libro~~~%s~~~\n", res);
+            *res = printProperties(all_books[i]);
         }
     }
 
     free(props);
+
+    return numeroLibriAccettati;
 }
 
 // thread worker prende in carico la prima richiesta nella coda
-void *workerThread(void *args)
+void *workerThread(void *arg)
 {
+    char *logName = (char *)arg;
+    FILE *logFile;
+    logFile = Fopen(logName, "w+");
+
     while (!stopSignal)
     {
         //- prende la prima richiesta dalla coda
@@ -349,8 +365,14 @@ void *workerThread(void *args)
         fflush(stdout);
 
         //- cerca i libri che corrispondono alla query
-        char *result = malloc(sizeof(char *));
-        cercaLibri(req->req, result);
+        int numeroLibri = 0;
+        char *result = malloc(sizeof(char));
+        strcpy(result, "\0");
+        numeroLibri = cercaLibri(req->req, &result);
+
+        printf("trovati %d libri\n", numeroLibri);
+        fprintf(logFile, "LIBRI %d\n", numeroLibri);
+        fflush(logFile);
 
         //- invia risposta al client
         ssize_t bitSignificativi = strlen(result);
@@ -358,7 +380,7 @@ void *workerThread(void *args)
 
         sprintf(resultConDimensione, "%0*ld;%s", 4, bitSignificativi, result);
 
-        printf("Inviata risposta %s\n", resultConDimensione);
+        printf("|\n%s\n|\n", resultConDimensione);
         send(req->clientSocket, resultConDimensione, strlen(resultConDimensione), 0);
 
         //- chiude la connessione con il client
@@ -371,6 +393,8 @@ void *workerThread(void *args)
         free(result);
         free(resultConDimensione);
     }
+
+    fclose(logFile);
     return NULL;
 }
 
@@ -488,11 +512,8 @@ int main(int argc, char **argv)
     parseDati(f);
 
     //- creo il file di log
-    FILE *logFile;
     char logName[strlen(argv[1]) + 5];
-    //* il log si chiama nomebib.log
     snprintf(logName, strlen(argv[1]) + 5, "%s.log", argv[1]);
-    logFile = Fopen(logName, "w+");
 
     //- inizializzazione socket
     int server_fd;
@@ -548,7 +569,7 @@ int main(int argc, char **argv)
 
     for (int i = 0; i < numeroWorker; i++)
     {
-        if (pthread_create(&tid[i], NULL, workerThread, NULL) != 0)
+        if (pthread_create(&tid[i], NULL, workerThread, (void *)logName) != 0)
             Perror("thread create");
     }
 
@@ -654,7 +675,6 @@ int main(int argc, char **argv)
     free(all_props);
 
     fclose(f);
-    fclose(logFile);
 
     destroyCoda();
 

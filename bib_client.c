@@ -160,8 +160,10 @@ void parseDati(int argc, char **argv, Richiesta_t *richiesta)
     char **propArr;  // array di tutte le proprietà
     int propNum = 0; // numero di proprietà
 
+    token = malloc(sizeof(char *));
     propArr = malloc(sizeof(char *));
     richiesta->dati = malloc(sizeof(char));
+    strcpy(richiesta->dati, "\0");
     richiesta->tipo = 'Q';
 
     for (int i = 1; i < argc; i++)
@@ -189,7 +191,7 @@ void parseDati(int argc, char **argv, Richiesta_t *richiesta)
         }
 
         // il primo valore è il --proprieta
-        richiesta->dati = realloc(richiesta->dati, sizeof(richiesta->dati) + sizeof(token));
+        richiesta->dati = realloc(richiesta->dati, strlen(richiesta->dati) + strlen(token) + 2);
         propNum++;
         propArr = realloc(propArr, sizeof(char *) * propNum);
         propArr[propNum - 1] = malloc(sizeof(token));
@@ -250,8 +252,8 @@ void parseConfFile(FILE *confFile)
 
         servers = realloc(servers, sizeof(Server_t *) * numeroServer);
         servers[numeroServer - 1] = malloc(sizeof(Server_t));
-        servers[numeroServer - 1]->indirizzo = malloc(sizeof(indirizzoServer));
-        servers[numeroServer - 1]->nome = malloc(sizeof(nomeServer));
+        servers[numeroServer - 1]->indirizzo = malloc(strlen(indirizzoServer) + 1);
+        servers[numeroServer - 1]->nome = malloc(strlen(nomeServer) + 1);
 
         strcpy(servers[numeroServer - 1]->nome, nomeServer);
         strcpy(servers[numeroServer - 1]->indirizzo, indirizzoServer);

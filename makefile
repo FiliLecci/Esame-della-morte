@@ -9,7 +9,7 @@ all:
 	$(CC) $(FLAGS) unboundedqueue/unboundedqueue.c server_biblio.c -o server.o $(LIB)
 
 valgrind:
-	valgrind --track-origins=yes --leak-check=full --show-leak-kinds=all ./client.o --autore="shiau" -p
+	valgrind --track-origins=yes --leak-check=full --show-leak-kinds=all --num-callers=30 --error-limit=no -s ./client.o --autore="shiau" -p
 
 valgrinds:
 	valgrind --track-origins=yes --leak-check=full --show-leak-kinds=all -s ./server.o bib bibData/bib1.txt 1
