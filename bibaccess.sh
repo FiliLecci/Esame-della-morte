@@ -8,7 +8,7 @@ else
 	echo "Modalità non valida"
 	exit 1
 fi
-b 
+
 sommaTot=0
 
 for file in *.log; do

@@ -4,6 +4,7 @@
 #include <sys/signal.h>
 #include <sys/mman.h>
 #include <stdio.h>
+#include <time.h>
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,8 +48,8 @@ typedef struct node
 {
     char name[MAX_PROP_NAME_LEN];
 
-    // valType = 0 -> string
-    // valType = 1 -> date
+    // 0 -> string
+    // 1 -> date
     unsigned char valType;
     Value value;
 
@@ -80,6 +81,7 @@ void Perror(char *messaggio)
     exit(EXIT_FAILURE);
 }
 
+// Lancia Perror se si verifica un errore durante l'apertura del file
 FILE *Fopen(char *filePath, char *mod)
 {
     FILE *f;
@@ -89,20 +91,26 @@ FILE *Fopen(char *filePath, char *mod)
     return f;
 }
 
-void noSpace(char *stringa)
+/*
+ * Elimina eventuali spazi consecutivi
+ *
+ * @param stringa
+ * la stringa alla quale si vogliono eliminare gli spazi
+ */
+void rimuoviSpaziConsecutivi(char *stringa)
 {
+    if (stringa == NULL)
+        return;
+
+    if (strlen(stringa) <= 0)
+        return;
+
     size_t lunghezzaStringa = strlen(stringa);
-    int spazioConsecutivoFlag = 0;
+    int spazioConsecutivoFlag = 1;
     int ultimoCarattere = 0;
 
     for (int i = 0; i < lunghezzaStringa; i++)
     {
-        if (i == 0 && isspace(stringa[i]) != 0)
-        {
-            spazioConsecutivoFlag = 1;
-            continue;
-        }
-
         if (isspace(stringa[i]) == 0)
         {
             stringa[ultimoCarattere++] = stringa[i];
@@ -116,10 +124,19 @@ void noSpace(char *stringa)
             spazioConsecutivoFlag = 1;
         }
     }
+
     stringa[ultimoCarattere] = '\0';
 }
 
-// Inserimento in testa
+/*
+ * Aggiunge una proprietà in testa alla pila delle proprietà del libro
+ *
+ * @param book
+ * il libro al quale aggiungere la proprietà
+ *
+ * @param property
+ * la proprietà da aggiungere al libro passato
+ */
 void addProperty(Book *book, Property *property)
 {
     if (book->size == 0)
@@ -132,7 +149,46 @@ void addProperty(Book *book, Property *property)
     book->size++;
 }
 
-// scrive il libro 'book' come stringa in 'res'
+/*
+ * Calcola la differenza tra la data odierna e una data passata come parametro
+ *
+ * @param data
+ * la data dalla quale calcolare il numero di giorni
+ *
+ * @returns
+ * #giorni trascorsi dalla data passata come parametro
+ */
+double differenzaGiorni(Date *data)
+{
+    struct tm *dataPrestito;
+    time_t now;
+    double differenza;
+
+    time(&now);
+    dataPrestito = localtime(&now);
+
+    // crea una struct tm dalla data del prestito del libro
+    dataPrestito->tm_mday = data->day;
+    dataPrestito->tm_mon = data->month - 1;
+    dataPrestito->tm_year = data->year - 1900;
+    dataPrestito->tm_hour = 0;
+    dataPrestito->tm_min = 0;
+    dataPrestito->tm_sec = 0;
+
+    differenza = (difftime(now, mktime(dataPrestito)) / 3600) / 24;
+
+    return differenza;
+}
+
+/*
+ * Scrive una stringa contenente tutte le proprietà del libro passato con formato [nome:valore;]
+ *
+ * @param book
+ * Libro del quale si vogliono scrivere le proprietà
+ *
+ * @returns
+ * Ritorna un puntatore ad una nuova stringa con le proprietà
+ */
 char *printProperties(Book *book)
 {
     char *tempRes;
@@ -143,6 +199,12 @@ char *printProperties(Book *book)
 
     while (prop != NULL)
     {
+        if (strcmp(prop->name, "prestito") == 0 && differenzaGiorni(&prop->value.date) > 30)
+        {
+            prop = prop->next;
+            continue;
+        }
+
         tempRes = realloc(tempRes, strlen(tempRes) + strlen(prop->name) + 2);
         strcat(tempRes, prop->name);
         strcat(tempRes, ":");
@@ -158,8 +220,10 @@ char *printProperties(Book *book)
             char *dataToString = malloc(13);
             tempRes = realloc(tempRes, strlen(tempRes) + 12); // 10 caratteri per la data
 
-            sprintf(dataToString, "%d/%d/%d;\n", prop->value.date.day, prop->value.date.month, prop->value.date.year);
+            sprintf(dataToString, "%d-%d-%d;", prop->value.date.day, prop->value.date.month, prop->value.date.year);
             strcat(tempRes, dataToString);
+
+            free(dataToString);
         }
 
         prop = prop->next;
@@ -168,6 +232,84 @@ char *printProperties(Book *book)
     return tempRes;
 }
 
+/*
+ * prova a noleggiare il libro passato come parametro
+ *
+ * @param book
+ * libro da controllare
+ *
+ * @retval 1 - libro è stato noleggiato.
+ * @retval 0 - libro già in prestito
+ */
+int noleggiaLibro(Book *book)
+{
+    Property *proprieta = book->head;
+
+    time_t now;
+    time(&now);
+    struct tm *dataLocale;
+    double giorniDaInizioPrestito = 31.0;
+    int prestitoPresente = 0;
+
+    dataLocale = localtime(&now);
+
+    // controlla se è possibile noleggiare il libro
+    for (int i = 0; i < book->size; i++)
+    {
+        if (strcmp(proprieta->name, "prestito") != 0)
+        {
+            proprieta = proprieta->next;
+            continue;
+        }
+
+        prestitoPresente = 1;
+
+        // calcola la differenza con la data attuale
+        giorniDaInizioPrestito = differenzaGiorni(&proprieta->value.date);
+        break;
+    }
+
+    if (prestitoPresente == 0)
+    {
+        Property *nuovoPrestito = malloc(sizeof(Property));
+        nuovoPrestito->next = malloc(sizeof(Property));
+
+        nuovoPrestito->next = NULL;
+        strcpy(nuovoPrestito->name, "prestito");
+        nuovoPrestito->valType = DATE_TYPE;
+
+        all_props_len++;
+        all_props = (Property **)realloc(all_props, sizeof(Property *) * all_props_len);
+        all_props[all_props_len - 1] = (Property *)malloc(sizeof(Property));
+
+        all_props[all_props_len - 1] = nuovoPrestito;
+
+        addProperty(book, nuovoPrestito);
+
+        proprieta = nuovoPrestito;
+    }
+
+    // se il prestito non è ancora scaduto ritorna 0
+    if (giorniDaInizioPrestito <= 30)
+        return 0;
+
+    // se il prestito è scaduto aggiorna la data con quella odierna
+    proprieta->value.date.day = dataLocale->tm_mday;
+    proprieta->value.date.month = dataLocale->tm_mon + 1;
+    proprieta->value.date.year = dataLocale->tm_year + 1900;
+
+    printf("Libro noleggiato dal %d/%d/%d\n", proprieta->value.date.day, proprieta->value.date.month, proprieta->value.date.year);
+
+    return 1;
+}
+
+/*
+ * Esegue il parsing dei dati dal file passato. Il file deve seguire il formato seguente per ogni libro:
+ * <nome proprieta:valore;>...\n
+ *
+ * @param file
+ * il file del quale vogliamo fare il parsing
+ */
 void parseDati(FILE *file)
 {
     char buffer[MAX_LINE_LENGTH]; // buffer per riga letta
@@ -175,6 +317,8 @@ void parseDati(FILE *file)
     char *property_token;         // token strtok
     char *lastb, *lastp;          // var per strtok_r
     char *prop_name, *prop_value; // nome e valore proprietà
+
+    prop_name = prop_value = NULL;
 
     while (fgets(buffer, MAX_LINE_LENGTH, file) != NULL)
     {
@@ -207,19 +351,24 @@ void parseDati(FILE *file)
 
             //* Inserisco il nome della proprietà
             prop_name = strtok_r(property_token, ":", &lastp);
-            noSpace(prop_name);
+            rimuoviSpaziConsecutivi(prop_name);
 
             if (strlen(prop_name) == 0)
                 continue;
 
-            strncpy(prop_ptr->name, prop_name, MAX_PROP_NAME_LEN);
+            strcpy(prop_ptr->name, prop_name);
+
+            prop_value = strtok_r(NULL, ":", &lastp);
+            if (prop_value == NULL)
+                prop_value = "";
+
+            rimuoviSpaziConsecutivi(prop_value);
 
             //* Distinguo tra prestito e non
             if (strcmp(prop_ptr->name, "prestito") == 0)
             {
                 prop_ptr->valType = 1;
 
-                prop_value = strtok_r(NULL, ":", &lastp);
                 prop_value = strtok_r(prop_value, "-", &lastp);
                 prop_ptr->value.date.day = (unsigned char)atoi(prop_value);
 
@@ -233,9 +382,7 @@ void parseDati(FILE *file)
             {
                 prop_ptr->valType = 0;
 
-                prop_value = strtok_r(NULL, ":", &lastp);
-                noSpace(prop_value);
-                strncpy(prop_ptr->value.string, prop_value, MAX_PROP_VALUE_LEN);
+                strcpy(prop_ptr->value.string, prop_value);
             }
 
             // Aggiungo la proprietà al libro
@@ -247,6 +394,8 @@ void parseDati(FILE *file)
 // gestione segnali
 static void gestore(int signum)
 {
+    if (signum != SIGINT && signum != SIGTERM)
+        return;
     // segnale di stop per i worker thread e main thread
     stopSignal = 1;
     // segnale per fermare la coda
@@ -259,7 +408,7 @@ int checkProp(Book *libro, char **req, int numeroReq)
     int reqIndex = 0;
     char *token;
 
-    // scorre le prop
+    // scorre le prop della richiesta
     while (prop != NULL)
     {
         if (reqIndex >= numeroReq)
@@ -302,16 +451,30 @@ int checkProp(Book *libro, char **req, int numeroReq)
     return 0;
 }
 
-// cerca i libri che hanno le proprietà corrispondenti
-int cercaLibri(char *req, char **res)
+/*
+ * Cerca tutti i libri che corrispondono alla query della richiesta
+ *
+ * @param tipo
+ * il tipo della richiesta fatta dal client (prestito o query)
+ * @param req
+ * la stringa con le proprietà da controllare nei libri
+ * @param res
+ * la stringa di risultato nella quale saranno scritti i libri
+ *
+ * @return
+ * ritorna il numero di libri che soddisfano la query
+ */
+int cercaLibri(char tipo, char *req, char **res)
 {
     char **props;
     char *coppia, *token;
     char *tokPtr1, *tokPtr2;
+    char *libro;
     int numeroProp = 0, numeroLibriAccettati = 0;
 
     props = malloc(sizeof(char *) * 2);
     coppia = strtok_r(req, ";", &tokPtr1);
+    libro = NULL;
 
     do
     {
@@ -328,26 +491,42 @@ int cercaLibri(char *req, char **res)
         props = realloc(props, sizeof(char *) * (numeroProp * 2));
     } while ((coppia = strtok_r(NULL, ";", &tokPtr1)) != NULL);
 
+    // cerca i libri che corrispondono
     for (int i = 0; i < all_books_len; i++)
     {
-        if (checkProp(all_books[i], props, numeroProp) != 0)
-        {
-            numeroLibriAccettati++;
-            *res = printProperties(all_books[i]);
-        }
+        if (checkProp(all_books[i], props, numeroProp) == 0)
+            continue;
+
+        if (tipo == 'L' && noleggiaLibro(all_books[i]) == 0)
+            continue;
+
+        numeroLibriAccettati++;
+        libro = printProperties(all_books[i]);
+
+        *res = realloc(*res, strlen(*res) + strlen(libro) + 3);
+        strcat(*res, libro);
+        strcat(*res, "\n\n");
+
+        free(libro);
     }
 
+    for (int i = 0; i < numeroProp; i++)
+        free(props[i]);
     free(props);
 
     return numeroLibriAccettati;
 }
 
-// thread worker prende in carico la prima richiesta nella coda
+/*
+ * La funzione che verrà eseguita da ogni worker
+ *
+ * @param arg
+ * il nome del file di log nel quale scrivere il risultato di ogni query
+ */
 void *workerThread(void *arg)
 {
     char *logName = (char *)arg;
-    FILE *logFile;
-    logFile = Fopen(logName, "w+");
+    FILE *logFile = Fopen(logName, "a");
 
     while (!stopSignal)
     {
@@ -368,21 +547,23 @@ void *workerThread(void *arg)
         int numeroLibri = 0;
         char *result = malloc(sizeof(char));
         strcpy(result, "\0");
-        numeroLibri = cercaLibri(req->req, &result);
+        numeroLibri = cercaLibri(req->tipo, req->req, &result);
 
         printf("trovati %d libri\n", numeroLibri);
-        fprintf(logFile, "LIBRI %d\n", numeroLibri);
+        if (req->tipo == 'Q')
+            fprintf(logFile, "%s\n\nQUERY %d\n\n", result, numeroLibri);
+        else
+            fprintf(logFile, "%s\n\nLOAN %d\n\n", result, numeroLibri);
+
         fflush(logFile);
 
         //- invia risposta al client
         ssize_t bitSignificativi = strlen(result);
-        char *resultConDimensione = (char *)malloc(bitSignificativi + 5);
+        char *resultConDimensione = malloc(bitSignificativi + 6);
 
-        sprintf(resultConDimensione, "%0*ld;%s", 4, bitSignificativi, result);
+        sprintf(resultConDimensione, "%04ld;%s", bitSignificativi, result);
 
-        printf("|\n%s\n|\n", resultConDimensione);
         send(req->clientSocket, resultConDimensione, strlen(resultConDimensione), 0);
-
         //- chiude la connessione con il client
         pthread_mutex_lock(&mutexConnessioni);
         connessioniAttive--;
@@ -398,6 +579,17 @@ void *workerThread(void *arg)
     return NULL;
 }
 
+/*
+ * Scrive la configurazione del server nel file. Se la configurazione è già presente non scrive nulla
+ *
+ * @param confFile
+ * il file nel quale scrivere la configurazione
+ * @param nome
+ * nome dato al server
+ *
+ * @retval 1 - configurazione già presente
+ * @retval 0 - effettuata scrittura della configurazione
+ */
 int inserisciConfigurazioneServer(FILE *confFile, char *nome)
 {
     char *buffer = malloc(MAX_SERVER_CONF_LENGTH);
@@ -418,6 +610,28 @@ int inserisciConfigurazioneServer(FILE *confFile, char *nome)
     fwrite(strcat(configurazioneServerCorrente, "\n"), 1, strlen(configurazioneServerCorrente) + 1, confFile);
 
     return 0;
+}
+
+/*
+ * Riscrive tutti i libri aggiornandoli. Con aggiornarli si intende che se la data del prestito è scaduta essa non viene scritta.
+ *
+ * @param filePath
+ * il percorso al file nel quale scrivere i dati
+ */
+void riscriviLibri(char *filePath)
+{
+    FILE *file = Fopen(filePath, "w");
+    char *stringaLibro;
+
+    for (int i = 0; i < all_books_len; i++)
+    {
+        stringaLibro = printProperties(all_books[i]);
+
+        fprintf(file, "%s\n", stringaLibro);
+        free(stringaLibro);
+    }
+
+    fclose(file);
 }
 
 /*
@@ -488,11 +702,11 @@ int inserisciConfigurazioneServer(FILE *confFile, char *nome)
 
  //5 I worker una volta presa una richiesta in carico lavorano su una struttura condivisa contenente tutti le informazioni relative ai libri
 
- -6 Se viene richiesto un prestito (dalla durata di 30 giorni) si aggiorna LOCALMENTE nella struttura condivisa il campo "prestito" del libro
+ //6 Se viene richiesto un prestito (dalla durata di 30 giorni) si aggiorna LOCALMENTE nella struttura condivisa il campo "prestito" del libro
 
- -7 Il server registra un file di log ./nome_bib.log in cui viene registrato il numero di record inviati al client per ogni richiesta (vedi FILE LOG ^^^)
+ //7 Il server registra un file di log ./nome_bib.log in cui viene registrato il numero di record inviati al client per ogni richiesta (vedi FILE LOG ^^^)
 
- -8 Alla chiusura viene sovrascritto il "file_record" con i nuovi dati. Se la data del prestito è scaduta, questo campo non viene stampato
+ //8 Alla chiusura viene sovrascritto il "file_record" con i nuovi dati. Se la data del prestito è scaduta, questo campo non viene stampato
  */
 
 int main(int argc, char **argv)
@@ -500,7 +714,9 @@ int main(int argc, char **argv)
     if (argc < 4)
         Perror("Parametri insufficienti");
 
-    FILE *f = Fopen(argv[2], "r");
+    char *nomeFileDati = argv[2];
+
+    FILE *fileDati = Fopen(nomeFileDati, "r");
 
     //! gestione segnali
     signal(SIGINT, gestore);
@@ -509,11 +725,17 @@ int main(int argc, char **argv)
     all_books = malloc(sizeof(Book *));
     all_props = malloc(sizeof(Property *));
 
-    parseDati(f);
+    parseDati(fileDati);
+
+    fclose(fileDati);
 
     //- creo il file di log
     char logName[strlen(argv[1]) + 5];
     snprintf(logName, strlen(argv[1]) + 5, "%s.log", argv[1]);
+
+    remove(logName);
+    FILE *logFile = Fopen(logName, "w");
+    fclose(logFile);
 
     //- inizializzazione socket
     int server_fd;
@@ -521,7 +743,7 @@ int main(int argc, char **argv)
     int opt = 1;
     numeroWorker = atoi(argv[3]);
 
-    pthread_t tid[atoi(argv[3])];
+    pthread_t tid[numeroWorker];
 
     //* il socket è impostato su non bloccante per permettere il ricevimento di messaggi e la connessione di altri client da parte del solo main thread
     if ((server_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)) < 0)
@@ -587,8 +809,8 @@ int main(int argc, char **argv)
     while (!stopSignal)
     {
         sleep(1);
-        //- controlla se ci sono client a cui accettare la richiesta di connessione
         printf("Accetto...\a\n");
+        //- controlla se ci sono client a cui accettare la richiesta di connessione
         tempSock = accept(server_fd, NULL, NULL);
 
         //- se si è connesso un nuovo client aumento il contatore
@@ -599,9 +821,7 @@ int main(int argc, char **argv)
             client_req = (Client_req **)realloc(client_req, sizeof(Client_req *) * connessioniAttive);
             client_req[connessioniAttive - 1] = malloc(sizeof(Client_req));
             client_req[connessioniAttive - 1]->next = malloc(sizeof(Client_req *));
-
-            client_req[connessioniAttive - 1]
-                ->clientSocket = tempSock;
+            client_req[connessioniAttive - 1]->clientSocket = tempSock;
         }
 
         if (connessioniAttive <= 0)
@@ -656,10 +876,13 @@ int main(int argc, char **argv)
     for (int i = 0; i < connessioniAttive; i++)
     {
         close(client_req[i]->clientSocket);
+        free(client_req[i]->req);
+        free(client_req[i]->next);
         free(client_req[i]);
     }
 
-    //- termina la scrittura del log
+    //- riscrive il file dei libri con i nuovi dati (lo riscrive ogni volta in quanto potrebbero essere scaduti dei prestiti)
+    riscriviLibri(nomeFileDati);
 
     free(client_req);
     close(server_fd);
@@ -673,8 +896,6 @@ int main(int argc, char **argv)
     for (int i = 0; i < all_props_len; i++)
         free(all_props[i]);
     free(all_props);
-
-    fclose(f);
 
     destroyCoda();
 

@@ -25,6 +25,7 @@ void initCoda()
 
 void destroyCoda()
 {
+    printf("Distruzione della coda...\n");
     pthread_mutex_destroy(&mutex);
     pthread_cond_destroy(&cv);
 

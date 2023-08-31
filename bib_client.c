@@ -14,6 +14,9 @@
 #define MAX_PROP_VALUE_LEN 256
 #define MAX_LINE_LENGTH 1024
 
+#define SERVER_CONNESSO 1
+#define SERVER_NON_CONNESSO 0
+
 typedef struct
 {
     unsigned char day;
@@ -53,13 +56,13 @@ typedef struct
     char *dati;
 } Richiesta_t;
 
-// struct dei server a cui fare la richiesta
 typedef struct
 {
     char *nome;      // nome del server
     char *indirizzo; // indirizzo ip del server
     int porta;       // porta per accedere al server
     int fd_server;   // file descriptor della connect al server
+    int connesso;    // 0 connessione non riuscita, 1 altrimenti
 } Server_t;
 
 //* FUNZIONI CLASSICHE CON CONTROLLO ERRORI
@@ -83,7 +86,15 @@ FILE *Fopen(char *filePath, char *mod)
 }
 
 //* FUNZIONI DI UTILITY
-// funzione per rimuovere un carattere c dalla char *a s
+
+/*
+ * Rimuove un carattere da una stringa
+ *
+ * @param s
+ * la stringa dalla quale rimuovere il carattere
+ * @param c
+ * il carattere da rimuovere
+ */
 void rimuoviChar(char *s, char c)
 {
     int i, j;
@@ -97,20 +108,26 @@ void rimuoviChar(char *s, char c)
     s[j] = '\0';
 }
 
+/*
+ * Elimina eventuali spazi consecutivi
+ *
+ * @param stringa
+ * la stringa alla quale si vogliono eliminare gli spazi
+ */
 void rimuoviSpaziConsecutivi(char *stringa)
 {
+    if (stringa == NULL)
+        return;
+
+    if (strlen(stringa) <= 0)
+        return;
+
     size_t lunghezzaStringa = strlen(stringa);
-    int spazioConsecutivoFlag = 0;
+    int spazioConsecutivoFlag = 1;
     int ultimoCarattere = 0;
 
     for (int i = 0; i < lunghezzaStringa; i++)
     {
-        if (i == 0 && isspace(stringa[i]) != 0)
-        {
-            spazioConsecutivoFlag = 1;
-            continue;
-        }
-
         if (isspace(stringa[i]) == 0)
         {
             stringa[ultimoCarattere++] = stringa[i];
@@ -124,9 +141,18 @@ void rimuoviSpaziConsecutivi(char *stringa)
             spazioConsecutivoFlag = 1;
         }
     }
+
     stringa[ultimoCarattere] = '\0';
 }
 
+/*
+ * Connette il client ad un server
+ *
+ * @param indirizzo
+ * l'indirizzo del server a cui connettersi
+ * @param porta
+ * la porta del server a cui connettersi
+ */
 int connettiClient(char *indirizzo, int porta)
 {
     int status = 0, fdClient;
@@ -145,22 +171,27 @@ int connettiClient(char *indirizzo, int porta)
     if (inet_pton(AF_INET, indirizzo, &indirizzoServer.sin_addr) <= 0)
         Perror("Indirizzo non valido");
 
-    while ((status = connect(fdClient, (struct sockaddr *)&indirizzoServer,
-                             sizeof(struct sockaddr_in))) == -1 &&
-           errno == ECONNREFUSED)
-        sleep(1);
+    status = connect(fdClient, (struct sockaddr *)&indirizzoServer, sizeof(struct sockaddr_in));
 
-    return fdClient;
+    return (status == -1 ? -1 : fdClient);
 }
 
-// restituisce un puntatore ad una struct di tipo Richiesta_t contenente i dati ottenuti dal parse
+/*
+ * Effettua il parsing delle opzioni specificate all'esecuzione del programma
+ *
+ * @param argc
+ * numero di argomenti passati
+ * @param argv
+ * array di stringhe contententi le coppie nome:valore dei parametri
+ * @param richiesta
+ * la struct che viene creata contenente i dati della richiesta
+ */
 void parseDati(int argc, char **argv, Richiesta_t *richiesta)
 {
     char *token;
     char **propArr;  // array di tutte le proprietà
     int propNum = 0; // numero di proprietà
 
-    token = malloc(sizeof(char *));
     propArr = malloc(sizeof(char *));
     richiesta->dati = malloc(sizeof(char));
     strcpy(richiesta->dati, "\0");
@@ -168,7 +199,6 @@ void parseDati(int argc, char **argv, Richiesta_t *richiesta)
 
     for (int i = 1; i < argc; i++)
     {
-        printf("prop %d/%d : %s\n", i, argc, argv[i]);
         if (strcmp(argv[i], "-p") == 0)
         {
             richiesta->tipo = 'L';
@@ -203,7 +233,7 @@ void parseDati(int argc, char **argv, Richiesta_t *richiesta)
         // il secondo valore è il valore della proprietà
         token = strtok(NULL, "=");
 
-        richiesta->dati = realloc(richiesta->dati, sizeof(richiesta->dati) + sizeof(token));
+        richiesta->dati = realloc(richiesta->dati, strlen(richiesta->dati) + strlen(token) + 2);
         strcat(richiesta->dati, token);
         strcat(richiesta->dati, ";");
         rimuoviSpaziConsecutivi(richiesta->dati);
@@ -216,7 +246,12 @@ void parseDati(int argc, char **argv, Richiesta_t *richiesta)
     free(propArr);
 }
 
-// restituisce un array di struct di tipo Server_t contenti i dati letti dal file .conf
+/*
+ * Effettua il parsing dei server e li aggiunge all'array di server.
+ *
+ * @param confFile
+ * il file di configurazione dal quale vengono prese le informazioni dei server
+ */
 void parseConfFile(FILE *confFile)
 {
     char riga[MAX_LINE_LENGTH]; // riga letta dal file
@@ -281,7 +316,7 @@ void parseConfFile(FILE *confFile)
  * "lunghezza" è il numero di bit significativi in "dati"; vale 0 se non ci sono dati
  *
  * "dati" contiene le proprietà che i record devono rispettare, segue il seguente formato:
- * <proprieta: valore>;...
+ * <proprieta:valore>;...
  *
  ? FUNZIONALITA
  // 1 esegue il parsing delle opzioni
@@ -323,16 +358,24 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    for (int i = 0; i < numeroServer; i++)
-        printf("letto: %s, %s, %d\n", servers[i]->nome, servers[i]->indirizzo, servers[i]->porta);
-
     //- connessione ai server e memorizzazione dei file descriptor
-    char *tempBuffer;
+    char *tempBuffer = NULL;
+    int statusConnessione;
     ssize_t bufferDim;
+
     for (int i = 0; i < numeroServer; i++)
     {
         printf("connessione al server %s...\n", servers[i]->nome);
-        servers[i]->fd_server = connettiClient(servers[i]->indirizzo, servers[i]->porta);
+        statusConnessione = connettiClient(servers[i]->indirizzo, servers[i]->porta);
+        if (statusConnessione == -1)
+        {
+            printf("connessione non riuscita.\n");
+            servers[i]->connesso = SERVER_NON_CONNESSO;
+            continue;
+        }
+
+        servers[i]->fd_server = statusConnessione;
+        servers[i]->connesso = SERVER_CONNESSO;
         printf("connesso, invio richiesta...\n");
 
         //- invia richiesta al server
@@ -340,8 +383,6 @@ int main(int argc, char **argv)
         bufferDim = sprintf(tempBuffer, "%c,%0*ld,%s", richiesta->tipo, 4, richiesta->lunghezza, richiesta->dati);
 
         send(servers[i]->fd_server, tempBuffer, bufferDim, 0);
-
-        printf("inviati %ld: %s\n", bufferDim, tempBuffer);
     }
 
     //- aspetta per le risposte dei server e stampa
@@ -351,7 +392,10 @@ int main(int argc, char **argv)
 
     for (int i = 0; i < numeroServer; i++)
     {
-        printf("Aspettando risposta dal server %s\n", servers[i]->nome);
+        if (servers[i]->connesso == SERVER_NON_CONNESSO)
+            continue;
+
+        printf("Aspettando risposta dal server %s...\n", servers[i]->nome);
         // i primi 5 caratteri sono il numero dei bit significativi
         recv(servers[i]->fd_server, recBuff, 5, 0);
 
@@ -369,7 +413,17 @@ int main(int argc, char **argv)
     }
 
     //! chiusura/liberazione della memoria usata
+    for (int i = 0; i < numeroServer; i++)
+    {
+        free(servers[i]->nome);
+        free(servers[i]->indirizzo);
+        free(servers[i]);
+    }
+    free(servers);
+
+    free(recBuff);
     free(richiesta->dati);
+    free(richiesta);
     free(tempBuffer);
     fclose(confFile);
 
