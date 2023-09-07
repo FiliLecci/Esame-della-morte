@@ -398,8 +398,6 @@ static void gestore(int signum)
         return;
     // segnale di stop per i worker thread e main thread
     stopSignal = 1;
-    // segnale per fermare la coda
-    closeConn();
 }
 
 int checkProp(Book *libro, char **req, int numeroReq)
@@ -564,6 +562,7 @@ void *workerThread(void *arg)
         sprintf(resultConDimensione, "%04ld;%s", bitSignificativi, result);
 
         send(req->clientSocket, resultConDimensione, strlen(resultConDimensione), 0);
+
         //- chiude la connessione con il client
         pthread_mutex_lock(&mutexConnessioni);
         connessioniAttive--;
@@ -730,8 +729,8 @@ int main(int argc, char **argv)
     fclose(fileDati);
 
     //- creo il file di log
-    char logName[strlen(argv[1]) + 5];
-    snprintf(logName, strlen(argv[1]) + 5, "%s.log", argv[1]);
+    char logName[strlen(argv[1]) + 10];
+    snprintf(logName, strlen(argv[1]) + 10, "logs/%s.log", argv[1]);
 
     remove(logName);
     FILE *logFile = Fopen(logName, "w");

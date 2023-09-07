@@ -11,7 +11,7 @@ fi
 
 sommaTot=0
 
-for file in *.log; do
+for file in logs/*.log; do
 	sommaFile=0
 	# la seconda condizione serve perché l'ultima riga, se non seguita da \n, non viene riconosciuta
 	# line dopo la lettura contiene sempre il valore, la condizione controlla se non è vuota e nel caso va avanti
